@@ -1,11 +1,7 @@
 """Publishes the Naver blog twin of every automated SNS edition, at the SNS time.
 
-Runs in two places against one ledger, so whichever can write first publishes:
-  * the server (start_server_scheduler, every 2 minutes) — must work with the PC off;
-  * the owner's PC (backend/scripts/naver_blog_worker.py from Task Scheduler) as backup.
-Naver has refused blog writes from the Render IP ("no privilege") while the same session
-writes fine from a Korean residential line; when that happens the server pauses for an
-hour instead of hammering Naver, and the PC (or a later server try) picks the post up.
+The web server records scheduled editions even when publishing is unavailable. Workers
+with an authorized Naver session share one ledger and must claim a post before delivering it.
 
 Per edition (naver_social_content.EDITIONS):
   * due from its SNS post time until its window closes (3–6 hours);
@@ -69,25 +65,57 @@ def window(day: dt.date, edition: str) -> tuple[dt.datetime, dt.datetime]:
     return start, start + dt.timedelta(hours=content.EDITIONS[edition][1])
 
 
-def due(now: dt.datetime) -> list[tuple[dt.date, str]]:
+def delivery_deadline(day: dt.date, edition: str) -> dt.datetime:
+    _, end = window(day, edition)
+    # These builders read editions by date and slot. The heatmap and world builders
+    # use live snapshots, so those keep their original deadlines.
+    if content.EDITIONS[edition][4] in ("hot", "movers"):
+        end += dt.timedelta(hours=12)
+    return end
+
+
+def due(now: dt.datetime, *, recover: bool = False) -> list[tuple[dt.date, str]]:
     out = []
     for day in (now.date() - dt.timedelta(days=1), now.date()):
         for edition in content.EDITIONS:
             start, end = window(day, edition)
+            if recover:
+                end = delivery_deadline(day, edition)
             if start >= START and start <= now < end and applies(day, edition):
                 out.append((day, edition))
-    return sorted(out, key=lambda de: slot_time(*de))
+    return sorted(out, key=lambda de: (now >= window(*de)[1], slot_time(*de)))
 
 
 def expired(now: dt.datetime) -> list[tuple[dt.date, str]]:
-    """Editions whose window closed in the last day — still unpublished ones become 'skipped'."""
+    """Recently closed windows, including slots missed while the server was down."""
     out = []
-    for day in (now.date() - dt.timedelta(days=1), now.date()):
+    for offset in (2, 1, 0):
+        day = now.date() - dt.timedelta(days=offset)
         for edition in content.EDITIONS:
-            start, end = window(day, edition)
-            if start >= START and end <= now < end + dt.timedelta(hours=20) and applies(day, edition):
+            start = slot_time(day, edition)
+            end = delivery_deadline(day, edition)
+            if start >= START and end <= now < end + dt.timedelta(days=2) and applies(day, edition):
                 out.append((day, edition))
     return out
+
+
+def reconcile_schedule(now: dt.datetime) -> tuple[int, int]:
+    """Record due and missed slots without requiring a browser or a Naver session."""
+    active, closed = due(now, recover=True), expired(now)
+    days = sorted({day.isoformat() for day, _ in active + closed})
+    rows = {row["post_key"]: row for row in store.for_days(days)}
+    missing = [(day.isoformat(), edition, content.EDITIONS[edition][2])
+               for day, edition in active if store.key(day, edition) not in rows]
+    missed = [(day.isoformat(), edition, content.EDITIONS[edition][2])
+              for day, edition in closed if store.key(day, edition) not in rows]
+    store.enqueue_many(missing)
+    store.enqueue_many(missed, missed=True)
+    for day, edition in closed:
+        post_key = store.key(day, edition)
+        row = rows.get(post_key)
+        if row and row["status"] in ("pending", "failed") and row["attempts"] < store.MAX_ATTEMPTS:
+            store.mark_skipped(post_key, "publication window closed without a confirmed post")
+    return len(missing), len(missed)
 
 
 def _transient(exc: BaseException) -> bool:
@@ -129,18 +157,12 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
     """Publishes everything currently due. `force_day`+`only` publishes those editions
     for that day regardless of the clock (manual tests and recoveries)."""
     now = now or dt.datetime.now(KST)
-    result = {"at": now.isoformat(timespec="seconds"), "published": [], "waiting": [], "failed": [], "skipped": [],
+    result = {"at": now.isoformat(timespec="seconds"), "published": [], "waiting": [], "failed": [],
               "verified": [], "status": "ok"}
     if force_day:
         targets = [(force_day, e) for e in (only or content.EDITIONS)]
     else:
-        targets = [(d, e) for d, e in due(now) if not only or e in only]
-        for day, edition in expired(now):
-            row = store.get(store.key(day, edition))
-            if row and row["status"] in ("pending", "failed"):
-                store.mark_skipped(row["post_key"], f"window closed: {row.get('last_error') or 'data never ready'}")
-                store.log_run(row["post_key"], "skipped", row.get("last_error") or "")
-                result["skipped"].append(row["post_key"])
+        targets = [(d, e) for d, e in due(now, recover=True) if not only or e in only]
     if not targets:
         result["status"] = "nothing_due"
         return result
@@ -151,7 +173,9 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
         if not dry_run:
             store.enqueue(day.isoformat(), edition, content.EDITIONS[edition][2])
             row = store.get(k)
-            if not row or row["status"] not in ("pending", "failed") or row["attempts"] >= store.MAX_ATTEMPTS:
+            if not row or row["status"] in ("published", "skipped"):
+                continue
+            if row["status"] != "publishing" and row["attempts"] >= store.MAX_ATTEMPTS:
                 continue
         open_targets.append((day, edition))
     if not open_targets:
@@ -253,32 +277,44 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
 # --- server scheduler ---------------------------------------------------------------
 
 SERVER_PAUSE_SECONDS = int(os.environ.get("NAVER_SERVER_PAUSE_SECONDS", "3600"))
-_server = {"paused_until": 0.0, "done": set(), "briefs_at": 0.0, "briefs_done": "", "last": None, "refused_at": None}
+_server = {"paused_until": 0.0, "briefs_at": 0.0, "briefs_done": "", "last": None,
+           "refused_at": None, "queue_checked_at": None}
+
+
+def _delivery_mode() -> str:
+    if os.environ.get("NAVER_PUBLISH_ON_SERVER") != "1":
+        return "disabled"
+    if not browser_guard.allowed():
+        return "browser_blocked"
+    if not naver_session_store.is_configured():
+        return "unconfigured"
+    return "enabled"
 
 
 def server_status() -> dict:
-    return {"paused_until": _server["paused_until"], "last": _server["last"], "refused_at": _server["refused_at"]}
+    return {"paused_until": _server["paused_until"], "last": _server["last"],
+            "refused_at": _server["refused_at"], "queue_checked_at": _server["queue_checked_at"],
+            "delivery_mode": _delivery_mode()}
 
 
 def _server_tick() -> None:
     from app.services import naver_publisher
 
     now = dt.datetime.now(KST)
-    if time.time() < _server["paused_until"]:
+    queued, missed = reconcile_schedule(now)
+    _server["queue_checked_at"] = now.isoformat(timespec="seconds")
+    if queued or missed:
+        log.info("Naver blog schedule recorded: queued=%s missed=%s", queued, missed)
+    if _delivery_mode() != "enabled" or time.time() < _server["paused_until"]:
         return
-    todo = [(d, e) for d, e in due(now) if f"{d}:{e}" not in _server["done"]]
-    if todo:
-        result = run_due(now, source="server")
-        _server["last"] = {k: v for k, v in result.items() if v}
-        for item in result.get("published", []):
-            _server["done"].add(item["key"])
-        if result["status"] == "all_done":
-            _server["done"].update(f"{d}:{e}" for d, e in todo)
-        if result["status"] in ("session_refused", "deferred"):
-            _server["paused_until"] = time.time() + SERVER_PAUSE_SECONDS
+    result = run_due(now, source="server")
+    _server["last"] = {k: v for k, v in result.items() if v}
+    if result["status"] in ("session_refused", "deferred"):
+        _server["paused_until"] = time.time() + SERVER_PAUSE_SECONDS
+        if result["status"] == "session_refused":
             _server["refused_at"] = now.isoformat(timespec="seconds")
-            log.warning("Naver refused a server-side write; pausing server publishing for %ss", SERVER_PAUSE_SECONDS)
-            return
+        log.warning("Naver server publishing paused for %ss (%s)", SERVER_PAUSE_SECONDS, result["status"])
+        return
     if (trading_calendar.is_trading_day(now.date(), "KR") and dt.time(16, 20) <= now.time() < dt.time(23, 0)
             and _server["briefs_done"] != now.date().isoformat() and time.time() - _server["briefs_at"] >= 600):
         _server["briefs_at"] = time.time()
@@ -303,8 +339,6 @@ def _server_loop() -> None:
 
 
 def start_server_scheduler() -> None:
-    if os.environ.get("NAVER_PUBLISH_ON_SERVER", "0") != "1" or not naver_session_store.is_configured():
-        log.info("server-side Naver publishing is off")
-        return
     import threading
+    log.info("Naver blog scheduling started (web delivery: %s)", _delivery_mode())
     threading.Thread(target=_server_loop, daemon=True, name="naver-social-server").start()

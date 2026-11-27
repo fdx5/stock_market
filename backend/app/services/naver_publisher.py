@@ -67,9 +67,7 @@ CHARTS_ENABLED = os.environ.get("NAVER_PUBLISH_CHARTS", "1") != "0"
 # Blog category "오늘의 브리핑" (under 게시판). Earlier posts stay where they are.
 BRIEF_CATEGORY_NO = int(os.environ.get("NAVER_BRIEF_CATEGORY_NO", "8"))
 
-# Set NAVER_PUBLISH_ON_SERVER=0 to make the server only queue the briefs and leave
-# publishing to the owner's PC (backend/scripts/naver_blog_worker.py). By default the
-# server publishes too, so the posts go out with the PC off; both share one ledger.
+# Render queues briefs by default. A publishing worker can consume the same ledger.
 DEFER_TO_LOCAL = bool(os.environ.get("RENDER")) and os.environ.get("NAVER_PUBLISH_ON_SERVER", "0") != "1"
 
 # One run at a time in this process, mirroring market_brief._lock. The store's claim()
@@ -397,6 +395,9 @@ def schedule_publish_after_brief(report_date: str | None = None) -> None:
     silently produces nothing whenever the brief was keyed to the previous trading day.
     """
     report_date = report_date or dt.datetime.now(KST).date().isoformat()
+    if DEFER_TO_LOCAL or not browser_guard.allowed():
+        enqueue_for_date(report_date)
+        return
     threading.Thread(
         target=_delayed_run,
         args=(report_date,),
@@ -491,6 +492,8 @@ def _keepalive_loop() -> None:
 
 
 def start_keepalive_scheduler() -> None:
+    if DEFER_TO_LOCAL or not browser_guard.allowed():
+        return
     if not naver_session_store.is_configured():
         log.info("NAVER_SESSION_KEY unset — skipping Naver session keep-alive")
         return

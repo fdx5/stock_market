@@ -177,13 +177,23 @@ def published_since(day: str) -> list[dict]:
 
 
 def enqueue(day: str, edition: str, category_no: int) -> None:
+    enqueue_many([(day, edition, category_no)])
+
+
+def enqueue_many(slots: list[tuple[str, str, int]], *, missed: bool = False) -> None:
+    if not slots:
+        return
     now = _now()
+    status = "skipped" if missed else "pending"
+    error = "publication window closed without a worker result" if missed else None
 
     def run(c):
-        c.execute(
-            "INSERT INTO naver_social_posts (post_key, day, edition, category_no, status, attempts, queued_at, updated_at) "
-            "VALUES (?, ?, ?, ?, 'pending', 0, ?, ?) ON CONFLICT(post_key) DO NOTHING",
-            (key(day, edition), day, edition, category_no, now, now))
+        c.executemany(
+            "INSERT INTO naver_social_posts (post_key, day, edition, category_no, status, attempts, "
+            "last_error, queued_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?) "
+            "ON CONFLICT(post_key) DO NOTHING",
+            [(key(day, edition), day, edition, category, status, error, now, now)
+             for day, edition, category in slots])
         c.commit()
 
     _with(run)
@@ -223,8 +233,10 @@ def mark_skipped(post_key: str, reason: str) -> None:
     now = _now()
 
     def run(c):
-        c.execute("UPDATE naver_social_posts SET status = 'skipped', last_error = ?, updated_at = ? "
-                  "WHERE post_key = ? AND status IN ('pending', 'failed')", (reason[:500], now, post_key))
+        c.execute("UPDATE naver_social_posts SET status = 'skipped', "
+                  "last_error = COALESCE(last_error, ?), updated_at = ? "
+                  "WHERE post_key = ? AND status IN ('pending', 'failed') AND attempts < ?",
+                  (reason, now, post_key, MAX_ATTEMPTS))
         c.commit()
 
     _with(run)

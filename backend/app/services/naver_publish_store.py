@@ -153,21 +153,16 @@ def enqueue(report_date: str, market: str) -> bool:
 
     def _run(conn):
         cur = conn.execute(
-            "SELECT status FROM naver_blog_posts WHERE report_date = ? AND market = ?",
-            (report_date, market),
-        ).fetchone()
-        if cur is not None:
-            return False
-        conn.execute(
             """
             INSERT INTO naver_blog_posts
                 (report_date, market, status, attempts, queued_at, updated_at)
             VALUES (?, ?, 'pending', 0, ?, ?)
+            ON CONFLICT(report_date, market) DO NOTHING
             """,
             (report_date, market, now, now),
         )
         conn.commit()
-        return True
+        return getattr(cur, "rowcount", 0) == 1
 
     return _with_connection(_run)
 

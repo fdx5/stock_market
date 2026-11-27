@@ -97,7 +97,7 @@ def tick(verbose: bool = False) -> int:
             log.exception("heartbeat failed")
 
     code = 0
-    due = naver_social_publisher.due(now)
+    due = naver_social_publisher.due(now, recover=True)
     if due:
         done = set(state.get("done", []))
         if any(f"{d}:{e}" not in done for d, e in due):

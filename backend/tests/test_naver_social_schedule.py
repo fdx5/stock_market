@@ -48,3 +48,58 @@ def test_links_carry_the_campaign():
 def test_tags_are_clean_and_capped():
     tags = content.clean_tags(["#코스피", "코스피", "S&P 500", "x", "AI 반도체 쇼크", "1234"] + [f"태그{i}" for i in range(30)], 10)
     assert tags[:3] == ["코스피", "SP500", "AI반도체쇼크"] and len(tags) == 10
+
+
+def test_recovery_uses_archived_editions_and_prioritizes_current_slots():
+    friday = dt.date(2026, 11, 27)
+    saturday = dt.date(2026, 11, 28)
+    recoverable = pub.due(at(2026, 11, 28, 7, 16), recover=True)
+    assert recoverable.index((saturday, "morning")) < recoverable.index((friday, "evening"))
+    assert (saturday, "us_movers_open") in recoverable
+    assert (friday, "movers_close") in recoverable
+    assert (friday, "close") not in recoverable
+    assert (friday, "world_evening") not in recoverable
+    assert (friday, "evening") not in pub.due(at(2026, 11, 28, 13, 15), recover=True)
+
+
+def test_queue_records_missed_windows_and_preserves_worker_results(monkeypatch, tmp_path):
+    store = pub.store
+    monkeypatch.setattr(store, "TURSO_DATABASE_URL", None)
+    monkeypatch.setattr(store, "LOCAL_DB_PATH", tmp_path / "queue.db")
+    monkeypatch.setattr(store, "_conn", None)
+    store.enqueue("2026-11-27", "close", content.CAT_MAPS)
+    assert store.claim("2026-11-27:close")
+    store.release("2026-11-27:close", "source unavailable", refund=True)
+    store.enqueue("2026-11-27", "movers_close", content.CAT_MOVERS)
+    store.mark_published("2026-11-27:movers_close", log_no="123456", post_url="https://example.com/123456",
+                         title="title", tags=[], variant="A", campaign="campaign", category_seen=9, chars=10, images=0)
+
+    now = at(2026, 11, 28, 6, 30)
+    queued, missed = pub.reconcile_schedule(now)
+    assert queued > 0 and missed > 0
+    assert store.get("2026-11-27:close")["last_error"] == "source unavailable"
+    assert store.get("2026-11-27:world_evening")["status"] == "skipped"
+    assert store.get("2026-11-27:movers_close")["status"] == "published"
+    assert store.get("2026-11-27:evening")["status"] == "pending"
+    assert store.get("2026-11-28:us_movers_open")["status"] == "pending"
+    assert store.get("2026-11-28:close") is None
+    assert pub.reconcile_schedule(now) == (0, 0)
+
+
+def test_web_tick_reconciles_with_delivery_disabled(monkeypatch):
+    monkeypatch.delenv("NAVER_PUBLISH_ON_SERVER", raising=False)
+    monkeypatch.setitem(pub._server, "queue_checked_at", None)
+    observed = []
+
+    def reconcile(now):
+        observed.append(now)
+        return 1, 0
+
+    def publish(*args, **kwargs):
+        raise AssertionError("the web server must not try to deliver")
+
+    monkeypatch.setattr(pub, "reconcile_schedule", reconcile)
+    monkeypatch.setattr(pub, "run_due", publish)
+    pub._server_tick()
+    assert pub.server_status()["queue_checked_at"] == observed[0].isoformat(timespec="seconds")
+    assert pub.server_status()["delivery_mode"] == "disabled"

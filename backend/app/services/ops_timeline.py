@@ -213,7 +213,7 @@ def _brief_and_blog(day: dt.date, now: dt.datetime) -> list[dict]:
 
 
 def _naver_social(day: dt.date, now: dt.datetime) -> list[dict]:
-    """Naver blog twins of the SNS editions (published by the PC worker), plus its heartbeat."""
+    """Scheduled Naver editions, delivery state and the worker heartbeat."""
     jobs = []
     try:
         from app.services import naver_social_content as content, naver_social_publisher as pub, naver_social_store as store
@@ -229,6 +229,7 @@ def _naver_social(day: dt.date, now: dt.datetime) -> list[dict]:
             jobs.append({"id": jid, "group": "blog", "at": hhmm, "name": name, "status": "off", "detail": "휴장일이라 쉽니다"})
             continue
         start, end = pub.window(day, edition)
+        deadline = pub.delivery_deadline(day, edition)
         if start < pub.START:
             jobs.append({"id": jid, "group": "blog", "at": hhmm, "name": name, "status": "off", "detail": "도입 전"})
             continue
@@ -246,11 +247,12 @@ def _naver_social(day: dt.date, now: dt.datetime) -> list[dict]:
             status, detail = "failed", str(row.get("last_error") or "")[:140]
         elif now < start:
             status, detail = "pending", f"예정 · {cat}"
-        elif now < end:
+        elif now < deadline:
             status = "running"
-            detail = "게시 대기 — " + (str(row.get("last_error") or "데이터 준비·발행 중")[:120])
+            waiting = "지연 발행 대기" if now >= end else "게시 대기"
+            detail = f"{waiting} · " + str(row.get("last_error") or "데이터 준비 또는 발행기 응답 대기")[:120]
         else:
-            status, detail = "missed", "게시 기록 없음 — PC 발행기 확인"
+            status, detail = "missed", "기한 내 확인된 게시 기록 없음"
         jobs.append({"id": jid, "group": "blog", "at": hhmm, "name": name, "status": status, "detail": detail,
                      "link": row.get("post_url")})
     seen_at = None
@@ -260,17 +262,33 @@ def _naver_social(day: dt.date, now: dt.datetime) -> list[dict]:
         seen_at = None
     if day == now.date():
         srv = pub.server_status()
-        refused = srv.get("refused_at")
-        recent_refusal = bool(refused) and now - dt.datetime.fromisoformat(refused) < dt.timedelta(hours=3)
-        jobs.append({"id": "nb:server", "group": "blog", "at": f"{now:%H:%M}", "name": "서버 블로그 발행(PC 꺼져도 게시)",
-                     "status": "failed" if recent_refusal else "ok",
-                     "detail": (f"네이버가 서버 글쓰기를 거부함({refused[11:16]}) — 1시간 쉬고 재시도, 그동안 PC가 백업"
-                                if recent_refusal else "서버 발행 가능 상태(최근 거부 없음)")})
+        checked = srv["queue_checked_at"]
+        queue_fresh = checked and now - dt.datetime.fromisoformat(checked) < dt.timedelta(minutes=6)
+        jobs.append({"id": "nb:queue", "group": "blog", "at": f"{now:%H:%M}", "name": "서버 블로그 예약 원장",
+                     "status": "ok" if queue_fresh else "unknown",
+                     "detail": f"최근 갱신 {checked[11:16]}" if checked else "갱신 기록 없음"})
+        mode = srv["delivery_mode"]
+        last = srv["last"] or {}
+        if mode != "enabled":
+            status, detail = "off", {"disabled": "운영 설정에서 웹서버 발행 중지",
+                                     "browser_blocked": "웹서버 브라우저 실행 차단",
+                                     "unconfigured": "네이버 세션 설정 없음"}[mode]
+        elif srv["paused_until"] > now.timestamp():
+            status = "failed"
+            detail = "네이버 쓰기 권한 거부" if last.get("status") == "session_refused" else "발행 일시 보류"
+        elif last.get("status") == "no_session":
+            status, detail = "failed", "저장된 네이버 로그인 세션 없음"
+        elif last.get("published"):
+            status, detail = "ok", "네이버 공개 게시 확인"
+        else:
+            status, detail = "unknown", "최근 실행에서 확인된 게시 없음"
+        jobs.append({"id": "nb:server", "group": "blog", "at": f"{now:%H:%M}", "name": "웹서버 블로그 발행",
+                     "status": status, "detail": detail})
         fresh = seen_at is not None and now - seen_at < dt.timedelta(minutes=25)
-        jobs.append({"id": "nb:worker", "group": "blog", "at": f"{now:%H:%M}", "name": "PC 블로그 발행기(백업) 응답",
+        jobs.append({"id": "nb:worker", "group": "blog", "at": f"{now:%H:%M}", "name": "블로그 발행기 응답",
                      "status": "ok" if fresh else "unknown",
                      "detail": (f"마지막 응답 {seen_at:%H:%M} · 버전 {(worker or {}).get('version')}" if seen_at
-                                else "응답 기록 없음") + ("" if fresh else " — PC 꺼짐(서버가 게시 담당)")})
+                                else "응답 기록 없음") + ("" if fresh else " · 발행기 미응답")})
     return jobs
 
 
