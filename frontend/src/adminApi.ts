@@ -706,6 +706,37 @@ export interface OpsTimeline {
   github_runs: { id: number; event: string; status: string; conclusion: string | null; at: string; url: string }[];
 }
 
+export interface TistoryDraft {
+  key: string;
+  category: string;
+  title: string;
+  html: string;
+  prepared_at: string;
+  published_url: string | null;
+}
+
+export interface TistoryStatus {
+  day: string;
+  blog: string;
+  editor: string;
+  api_notice: string;
+  publish_mode: "api_retired";
+  last_tick: string | null;
+  feed_checked_at: string | null;
+  feed_ok: boolean | null;
+  jobs: {
+    key: string;
+    at: string;
+    label: string;
+    category: string;
+    state: "published" | "ready" | "scheduled" | "waiting" | "error";
+    title: string | null;
+    prepared_at: string | null;
+    published_url: string | null;
+    verified_at: string | null;
+  }[];
+}
+
 export interface NaverSocialPost {
   post_key: string; day: string; edition: string; kind: string; category_no: number | null; status: string; attempts: number;
   title: string | null; variant: string | null; campaign: string | null; post_url: string | null; category_seen: number | null;
@@ -994,6 +1025,8 @@ export const adminApi = {
   setCommentVisibility: (source: CommentSource, id: number, visible: boolean) =>
     authedPatch<{ visible: boolean }>(`/comments/${source}/${id}/visibility`, { visible }),
   opsTimeline: (day?: string) => authedGet<OpsTimeline>(`/ops/timeline${day ? `?day=${day}` : ""}`),
+  tistoryStatus: (day: string) => authedGet<TistoryStatus>(`/tistory/status?day=${encodeURIComponent(day)}`),
+  tistoryDraft: (key: string) => authedGet<TistoryDraft>(`/tistory/draft/${encodeURIComponent(key)}`),
   naverBlogSocial: (days = 7) => authedGet<NaverSocialReport>(`/naver-blog/social?days=${days}`),
   predictionStatus: () => authedGet<PredictionStatus>("/prediction/status"),
   // force=true always: the confirm dialog in front of this call already promises

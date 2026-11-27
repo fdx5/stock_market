@@ -11,6 +11,9 @@
 .ot-btn{padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-1);color:var(--text-primary);font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
 .ot-btn:hover:not(:disabled){border-color:var(--ot-run)}
 .ot-btn:disabled{opacity:.55;cursor:default}
+.ot-tistory-draft label{display:grid;gap:6px;margin:10px 0;font-size:13px}
+.ot-tistory-draft input,.ot-tistory-draft textarea{width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--border);border-radius:8px;background:var(--surface-1);color:var(--text-primary);font:inherit}
+.ot-tistory-draft textarea{resize:vertical}
 .ot-msg{font-size:11.5px;color:var(--text-secondary)}
 .ot-error{margin:0;padding:10px 14px;border-radius:10px;background:color-mix(in srgb,var(--ot-bad) 14%,transparent);color:var(--ot-bad)}
 .ot-empty{color:var(--text-secondary)}

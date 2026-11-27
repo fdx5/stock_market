@@ -289,13 +289,13 @@ def hot_excerpt(day: dt.date, page_edition: str, count: int = 3) -> list[dict]:
 
 # ------------------------------------------------------------------ hot issues
 
-def build_hot(day: dt.date, edition: str, variant: str) -> Post:
+def build_hot(day: dt.date, edition: str, variant: str, *, include_image: bool = True) -> Post:
     slot = "0700" if edition == "morning" else "2200"
     data = _get(f"{SITE}/api/hot-issues/{day}/{slot}")
     published = dt.datetime.fromisoformat(data["slot"]).astimezone(KST)
     if published.date() != day or not data.get("stories"):
         raise NotReady("hot-issue edition not ready")
-    cover = _get(f"{SITE}/hot-issues/og/{day}/{slot}.png", raw=True)
+    images = [(f"{day}_hot_cover.png", _get(f"{SITE}/hot-issues/og/{day}/{slot}.png", raw=True))] if include_image else []
     stories = sorted(data["stories"], key=lambda s: s.get("rank") or 99)
     when = "아침" if slot == "0700" else "밤"
     lead = " ".join(stories[0]["title"].split())
@@ -355,7 +355,7 @@ def build_hot(day: dt.date, edition: str, variant: str) -> Post:
         names += [a["name"] for a in s.get("affected") or [] if a.get("name")]
     tags = clean_tags(["오늘의핫이슈", "증시뉴스", "주식뉴스", "코스피", "코스닥", f"{day.month}월{day.day}일증시",
                        "주식시황", *names], 15 if variant.endswith("wide") else 10)
-    return Post(edition, day, titles[variant[0]], body, tags, [(f"{day}_hot_cover.png", cover)])
+    return Post(edition, day, titles[variant[0]], body, tags, images)
 
 
 # ------------------------------------------------------------------ heatmaps
@@ -562,7 +562,7 @@ def build_world(day: dt.date, edition: str, variant: str) -> Post:
 
 # ------------------------------------------------------------------ movers
 
-def build_movers(day: dt.date, edition: str, variant: str) -> Post:
+def build_movers(day: dt.date, edition: str, variant: str, *, include_image: bool = True) -> Post:
     _scripts_on_path()
     import movers_social as movers  # noqa: WPS433
 
@@ -573,7 +573,7 @@ def build_movers(day: dt.date, edition: str, variant: str) -> Post:
     stocks = data.get("stocks") or []
     if not stocks:
         raise NotReady("movers edition has no stocks")
-    png = movers.screenshot(day, edition)
+    images = [(f"{day}_movers_movers.png", movers.screenshot(day, edition))] if include_image else []
     us = movers.market(edition) == "us"
     slot = movers.EDITIONS[edition]
     page = f"{movers.base(edition)}/{day}/{slot}"
@@ -644,7 +644,7 @@ def build_movers(day: dt.date, edition: str, variant: str) -> Post:
     dyn = list(data.get("hashtags") or []) + [t["name"] for t in themes[:3]] + [s["name"] for s in (ups[:4] + downs[:2])]
     tags = clean_tags([*base, f"{sday.month}월{sday.day}일{'미국주식' if us else '특징주'}", "급등이유", *dyn],
                       15 if variant.endswith("wide") else 10)
-    return Post(edition, day, titles[variant[0]], body, tags, [(f"{day}_movers_movers.png", png)])
+    return Post(edition, day, titles[variant[0]], body, tags, images)
 
 
 BUILDERS = {"hot": build_hot, "heatmap": build_heatmap, "world": build_world, "movers": build_movers}

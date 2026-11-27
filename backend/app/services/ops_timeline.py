@@ -26,6 +26,7 @@ GROUPS = [
     {"key": "sns", "label": "SNS 자동 게시", "hint": "Buffer → X · Threads · Bluesky"},
     {"key": "content", "label": "콘텐츠 자동 생성", "hint": "핫이슈 · 급등락 이유 · 장마감 브리핑"},
     {"key": "blog", "label": "네이버 블로그", "hint": "SNS 판과 같은 시각 · 장마감 브리핑 · 로컬 PC 발행기"},
+    {"key": "tistory", "label": "티스토리", "hint": "서버 원고 자동 작성 · 공개 RSS 확인"},
     {"key": "data", "label": "예측·데이터 배치", "hint": "AI 예측 · D램 현물가"},
     {"key": "notify", "label": "알림", "hint": "카카오톡 알림"},
 ]
@@ -292,6 +293,31 @@ def _naver_social(day: dt.date, now: dt.datetime) -> list[dict]:
     return jobs
 
 
+def _tistory(day: dt.date, now: dt.datetime) -> list[dict]:
+    from app.services import tistory_editorial
+
+    jobs = []
+    try:
+        result = tistory_editorial.status(day, now=now)
+        states = [item["state"] for item in result["jobs"]]
+        ready = states.count("ready")
+        published = states.count("published")
+        waiting = states.count("waiting")
+        errors = states.count("error")
+        status = "off" if not states else "failed" if errors else "running" if waiting else "ok" if ready or published else "pending"
+        detail = f"원고 준비 {ready}건 · 공개 확인 {published}건 · 원본 대기 {waiting}건"
+        if errors:
+            detail += f" · 준비 오류 {errors}건"
+    except Exception:
+        status, detail = "unknown", "원고 상태 조회 실패"
+    jobs.append({"id": "tistory:drafts", "group": "tistory", "at": "00:00", "name": "티스토리 원고 생성",
+                 "status": status, "detail": detail})
+    if day >= tistory_editorial.START_DAY:
+        jobs.append({"id": "tistory:api", "group": "tistory", "at": "00:01", "name": "티스토리 서버 자동 발행",
+                     "status": "off", "detail": "공식 글쓰기 API 종료", "link": tistory_editorial.API_NOTICE})
+    return jobs
+
+
 def _data(day: dt.date, now: dt.datetime) -> list[dict]:
     jobs = []
     try:
@@ -377,8 +403,8 @@ def build(day: dt.date | None = None) -> dict:
         hit = _cache.get(cache_key)
         if hit and hit[0] > time.monotonic():
             return hit[1]
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        parts = [pool.submit(fn, day, now) for fn in (_sns, _hot, _movers, _brief_and_blog, _naver_social, _data, _notify)]
+    with ThreadPoolExecutor(max_workers=9) as pool:
+        parts = [pool.submit(fn, day, now) for fn in (_sns, _hot, _movers, _brief_and_blog, _naver_social, _tistory, _data, _notify)]
         runs = pool.submit(_github_runs)
         jobs = [job for part in parts for job in part.result()]
         github = runs.result()

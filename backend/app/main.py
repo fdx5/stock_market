@@ -628,6 +628,13 @@ def _start_naver_session_keepalive() -> None:
     naver_social_publisher.start_server_scheduler()
 
 
+@app.on_event("startup")
+def _start_tistory_editorial() -> None:
+    from app.services import tistory_editorial
+
+    tistory_editorial.start_scheduler()
+
+
 @app.get("/0ea2d0c3462664f25b0c41624bd76ef0.txt", include_in_schema=False)
 def indexnow_key():
     # IndexNow ownership proof (app/services/indexnow.py); public by design.

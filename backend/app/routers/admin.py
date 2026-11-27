@@ -788,6 +788,28 @@ def ops_timeline(day: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$")):
     return timeline.build(_dt.date.fromisoformat(day) if day else None)
 
 
+@router.get("/tistory/status", dependencies=[Depends(require_admin)])
+def tistory_status(day: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$")):
+    import datetime as _dt
+    from app.services import tistory_editorial
+
+    try:
+        selected = _dt.date.fromisoformat(day) if day else None
+    except ValueError as exc:
+        raise HTTPException(422, "유효한 날짜를 입력해 주세요.") from exc
+    return tistory_editorial.status(selected)
+
+
+@router.get("/tistory/draft/{draft_key}", dependencies=[Depends(require_admin)])
+def tistory_draft(draft_key: str):
+    from app.services import tistory_editorial
+
+    draft = tistory_editorial.get_draft(draft_key)
+    if draft is None:
+        raise HTTPException(404, "준비된 티스토리 원고가 없습니다.")
+    return draft
+
+
 @router.get("/naver-blog/status", dependencies=[Depends(require_admin)])
 def naver_blog_status():
     """Is the blog auto-publisher actually able to run right now?
