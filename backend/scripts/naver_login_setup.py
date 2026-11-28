@@ -278,9 +278,16 @@ def main() -> int:
     parser.add_argument("--harvest", action="store_true", help="이미 로그인한 프로필에서 세션 수확 (창 불필요)")
     parser.add_argument("--check", action="store_true", help="저장된 세션 동작 확인")
     parser.add_argument("--clear", action="store_true", help="저장된 세션 삭제")
+    parser.add_argument("--weekly", action="store_true", help="주간 시황 전용 Chrome 프로필에서 로그인")
     parser.add_argument("--blog-id", default=BLOG_ID_DEFAULT)
     args = parser.parse_args()
 
+    if args.weekly:
+        from app.services import naver_weekly_profile
+
+        connected = naver_weekly_profile.open_login(args.blog_id)
+        print("주간 시황 발행기 네이버 로그인 확인" if connected else "로그인이 완료되지 않았습니다.")
+        return 0 if connected else 1
     if args.genkey:
         genkey()
         return 0

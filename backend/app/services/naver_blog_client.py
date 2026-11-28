@@ -196,6 +196,7 @@ def publish(
     *,
     charts: list[tuple[str, bytes]] | None = None,
     require_charts: bool = False,
+    weekly_profile: bool = False,
     blog_id: str = BLOG_ID,
     dry_run: bool = False,
     category_no: int | None = None,
@@ -228,32 +229,35 @@ def publish(
     }
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=HEADLESS,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-            ],
-        )
-        context = browser.new_context(
-            viewport={"width": 1440, "height": 960},
-            user_agent=USER_AGENT,
-            locale="ko-KR",
-            timezone_id="Asia/Seoul",
-            extra_http_headers=CLIENT_HINT_HEADERS,
-        )
-        try:
-            context.add_cookies(cookies)
-        except Exception as exc:
-            browser.close()
-            raise NaverPublishError(f"stored cookies rejected by Playwright: {exc}") from exc
+        browser = None
+        if weekly_profile:
+            from app.services import naver_weekly_profile
 
-        page = context.new_page()
-
-        # navigator.webdriver is the single cheapest automation tell; strip it before any
-        # Naver script runs.
-        page.add_init_script(_PLATFORM_INIT_SCRIPT)
+            context = naver_weekly_profile.launch(p.chromium, headless=HEADLESS)
+            page = context.pages[0] if context.pages else context.new_page()
+        else:
+            browser = p.chromium.launch(
+                headless=HEADLESS,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                ],
+            )
+            context = browser.new_context(
+                viewport={"width": 1440, "height": 960},
+                user_agent=USER_AGENT,
+                locale="ko-KR",
+                timezone_id="Asia/Seoul",
+                extra_http_headers=CLIENT_HINT_HEADERS,
+            )
+            try:
+                context.add_cookies(cookies)
+            except Exception as exc:
+                browser.close()
+                raise NaverPublishError("Stored Naver session was not accepted by the browser") from exc
+            page = context.new_page()
+            page.add_init_script(_PLATFORM_INIT_SCRIPT)
 
         def _on_response(response):
             if "RabbitWrite.naver" in response.url or "RabbitTempPostWrite.naver" in response.url:
@@ -457,7 +461,8 @@ def publish(
         finally:
             try:
                 context.close()
-                browser.close()
+                if browser is not None:
+                    browser.close()
             except Exception:
                 pass
 

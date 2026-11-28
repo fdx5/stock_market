@@ -178,7 +178,8 @@ def test(editions: list[str], day: dt.date, dry_run: bool) -> int:
     from app.services import naver_social_content, naver_social_publisher
 
     names = list(naver_social_content.EDITIONS) if editions == ["all"] else editions
-    result = naver_social_publisher.run_due(dry_run=dry_run, only=names, force_day=day)
+    result = naver_social_publisher.run_due(dry_run=dry_run, only=names, force_day=day,
+                                           weekly_profile=names == ["weekly_market"])
     print(json.dumps(result, ensure_ascii=False, indent=1, default=str))
     return 0 if result["status"] in ("ok", "all_done") else 1
 
@@ -206,7 +207,7 @@ def main() -> int:
     if args.weekly:
         from app.services import naver_social_publisher
 
-        result = naver_social_publisher.run_due(only=["weekly_market"], dry_run=args.dry_run)
+        result = naver_social_publisher.run_due(only=["weekly_market"], dry_run=args.dry_run, weekly_profile=True)
         logging.getLogger(__name__).info("Weekly blog delivery: %s", json.dumps(result, ensure_ascii=False))
         if result["status"] in ("all_done", "nothing_due") or result["published"] or result["verified"]:
             return 0

@@ -163,27 +163,28 @@ def _transient(exc: BaseException) -> bool:
                             requests.ConnectionError, requests.Timeout))
 
 
-def _publish(post: content.Post, cookies: list[dict], *, dry_run: bool) -> dict:
+def _publish(post: content.Post, cookies: list[dict], *, dry_run: bool, weekly_profile: bool = False) -> dict:
     title_paragraphs = naver_document_model.build_title_paragraphs(post.title)
     meta = {"market": post.edition}
     return naver_blog_client.publish({}, meta, title_paragraphs, post.body, post.tags, cookies, charts=post.images,
                                      require_charts=post.edition == "weekly_market",
+                                     weekly_profile=weekly_profile,
                                      dry_run=dry_run, category_no=post.category_no, category_name=post.category_name)
 
 
 @browser_guard.uses_browser("naver social edition")
 def publish_edition(day: dt.date, edition: str, cookies: list[dict], *, dry_run: bool = False,
-                    variant: str | None = None) -> dict:
+                    variant: str | None = None, weekly_profile: bool = False) -> dict:
     """Builds and publishes one edition. Assumes the claim is held (unless dry_run)."""
     variant = variant or tuning.choose(day, edition)
     post = content.build(day, edition, variant)
-    outcome = _publish(post, cookies, dry_run=dry_run)
+    outcome = _publish(post, cookies, dry_run=dry_run, weekly_profile=weekly_profile)
     outcome["post"] = post
     return outcome
 
 
 def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list[str] | None = None,
-            force_day: dt.date | None = None, source: str = "pc") -> dict:
+            force_day: dt.date | None = None, source: str = "pc", weekly_profile: bool = False) -> dict:
     """Publishes everything currently due. `force_day`+`only` publishes those editions
     for that day regardless of the clock (manual tests and recoveries)."""
     now = now or dt.datetime.now(KST)
@@ -196,6 +197,8 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
     if not targets:
         result["status"] = "nothing_due"
         return result
+    if weekly_profile and any(edition != "weekly_market" for _, edition in targets):
+        raise ValueError("The dedicated Chrome profile only publishes the weekly market recap")
 
     open_targets = []
     for day, edition in targets:
@@ -217,7 +220,12 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
         result["status"] = "all_done"
         return result
 
-    session = naver_session_store.get() if naver_session_store.is_configured() else None
+    if weekly_profile:
+        from app.services import naver_weekly_profile
+
+        session = {"cookies": []} if naver_weekly_profile.profile_dir().is_dir() else None
+    else:
+        session = naver_session_store.get() if naver_session_store.is_configured() else None
     if not session:
         result["status"] = "no_session"
         return result
@@ -238,7 +246,7 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
                 time.sleep(random.randint(*GAP))
             started = time.monotonic()
             try:
-                outcome = publish_edition(day, edition, cookies, dry_run=dry_run)
+                outcome = publish_edition(day, edition, cookies, dry_run=dry_run, weekly_profile=weekly_profile)
             except content.NotReady as exc:
                 if not dry_run:
                     store.release(k, f"not ready: {exc}", refund=True)
@@ -276,7 +284,7 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
                 continue
             post = outcome["post"]
             fresh = outcome.get("cookies")
-            if fresh:
+            if fresh and not weekly_profile:
                 cookies = fresh
                 try:
                     naver_session_store.save(fresh, blog_id)
@@ -298,7 +306,8 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
                                  chars=len(post.text()), images=len(post.images))
             store.log_run(k, "published", f"[{source}] {outcome['post_url']} · {post.variant} · 카테고리 {seen} · "
                                           f"{int(time.monotonic() - started)}초")
-            naver_session_store.mark_ok()
+            if not weekly_profile:
+                naver_session_store.mark_ok()
             posted += 1
             result["published"].append({"key": k, "url": outcome["post_url"], "title": post.title,
                                         "category": seen, "expected_category": post.category_no})
