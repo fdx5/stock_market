@@ -1,0 +1,494 @@
+/* ── Stock Detail Tabbed Workspace Overhaul (Neo Genesis Native) ───────────
+ * Eliminates the 10,000px+ vertical scroll wall on /stock/:code by anchoring a
+ * crisp Hero + Chart header above a sticky 5-6 tab workspace hub, while fixing
+ * all mobile table horizontal overflows and touch targets.
+ */
+
+.d2.sk {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+.d2.sk .d2-main {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* ── Compact Sticky Command + Tab Bar ────────────────────────────────────── */
+.sk-hub-bar {
+  position: sticky;
+  top: calc(var(--ng-header, 68px) + var(--ng-pulse, 34px));
+  z-index: 65;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: #170f1e;
+  box-shadow: 0 8px 24px #00000055;
+  min-width: 0;
+}
+
+.sk-hub-id {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.sk-hub-id-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: contain;
+  background: #ffffffeb;
+  flex-shrink: 0;
+}
+
+.sk-hub-id-name {
+  font: 700 13px/1.1 var(--f-sans);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+.sk-hub-id-px {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font: 700 12.5px/1 var(--f-num);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sk-hub-id-px em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.sk-hub-id-px.is-up { color: var(--market-up); }
+.sk-hub-id-px.is-down { color: var(--market-down); }
+.sk-hub-id-px.is-flat { color: var(--text-secondary); }
+
+.sk-hub-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-width: 0;
+  flex: 1;
+  justify-content: center;
+}
+
+.sk-hub-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.sk-hub-bar .sk-hub-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 0 13px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font: 600 12.5px/1 var(--f-sans);
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.sk-hub-bar .sk-hub-tab:hover {
+  background: #bf85ff14;
+  color: var(--text-primary);
+}
+
+.sk-hub-bar .sk-hub-tab.is-active {
+  background: linear-gradient(135deg, #bf85ff2e, #bf85ff18);
+  border-color: #bf85ff75;
+  color: var(--text-primary);
+  font-weight: 700;
+  box-shadow: 0 0 14px #bf85ff1c;
+}
+
+.sk-hub-tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #35e6ad;
+  box-shadow: 0 0 7px #35e6ad;
+}
+
+.sk-hub-bar .sk-hub-find {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid #59416a;
+  background: #22162b;
+  color: var(--text-secondary);
+  font: 600 11.5px/1 var(--f-sans);
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sk-hub-bar .sk-hub-find:hover {
+  border-color: var(--accent-neon);
+  color: var(--text-primary);
+}
+
+.sk-hub-bar .sk-hub-find svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.sk-hub-bar .sk-hub-find kbd {
+  font: 600 10px/1 var(--f-type);
+  padding: 2px 5px;
+  border-radius: 4px;
+  border: 1px solid #6b537d;
+  color: var(--text-muted);
+}
+
+/* ── Top Hero + Chart Compact Refinement ─────────────────────────────────── */
+.sk-top-compact {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+  border-top: 0 !important;
+}
+
+.sk-top-compact .sk-hero {
+  padding: 16px 18px !important;
+}
+
+.sk-top-compact .sk-name {
+  font-size: clamp(22px, 2.3vw, 28px) !important;
+  margin: 4px 0 6px !important;
+}
+
+.sk-top-compact .sk-price {
+  margin: 10px 0 12px !important;
+}
+
+.sk-top-compact .sk-price b {
+  font-size: clamp(24px, 2.6vw, 32px) !important;
+}
+
+.sk-top-compact .sk-facts {
+  gap: 10px 18px !important;
+  margin-top: 10px !important;
+}
+
+.sk-top-compact #sk-chart.d2-sec {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+  border-top: 0 !important;
+}
+
+.sk-top-compact #sk-chart .d2-sec-head {
+  margin-bottom: 10px !important;
+  padding-bottom: 8px !important;
+}
+
+.sk-top-compact #sk-chart .d2-sec-head h2 {
+  font-size: 16px !important;
+}
+
+/* ── Workspace Tab Panel Container ───────────────────────────────────────── */
+.sk-tab-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 14px;
+  min-width: 0;
+  animation: sk-tab-fade 0.16s ease-out;
+}
+
+@keyframes sk-tab-fade {
+  from {
+    opacity: 0.4;
+    transform: translateY(4px);
+  }
+}
+
+.sk-tab-panel-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.sk-tab-panel-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sk-tab-panel-kicker {
+  font: 700 10px/1 var(--f-type);
+  letter-spacing: 0.12em;
+  color: var(--accent-neon);
+  text-transform: uppercase;
+}
+
+.sk-tab-panel-head h2 {
+  margin: 0;
+  font: 700 clamp(17px, 1.8vw, 22px)/1.3 var(--f-sans);
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+
+.sk-tab-panel-head p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ── Overview Tab: Executive Grid & Quick-Jump Shortcuts ─────────────────── */
+.sk-hub-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.d2.sk .sk-shortcut-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 15px 16px;
+  border-radius: 13px;
+  border: 1px solid #573f6988;
+  background: linear-gradient(145deg, #21142a, #150d1b);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s, transform 0.15s, background 0.16s;
+}
+
+.d2.sk .sk-shortcut-card:hover {
+  border-color: var(--accent-neon);
+  background: linear-gradient(145deg, #2a1a36, #1a1022);
+  transform: translateY(-1px);
+}
+
+.sk-shortcut-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sk-shortcut-kicker {
+  font: 700 10px/1 var(--f-type);
+  letter-spacing: 0.1em;
+  color: var(--accent-neon);
+}
+
+.sk-shortcut-card.is-talk .sk-shortcut-kicker {
+  color: #35e6ad;
+}
+
+.sk-shortcut-copy strong {
+  font: 700 15px/1.3 var(--f-sans);
+  color: var(--text-primary);
+}
+
+.sk-shortcut-copy span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.sk-shortcut-arrow {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid #bf85ff45;
+  background: #bf85ff18;
+  color: var(--accent-neon);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.sk-shortcut-card.is-talk .sk-shortcut-arrow {
+  border-color: #35e6ad45;
+  background: #35e6ad16;
+  color: #35e6ad;
+}
+
+.sk-overview-duo {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.sk-overview-card {
+  padding: 16px 18px;
+  border: 1px solid var(--line-soft);
+  border-radius: 13px;
+  background: linear-gradient(155deg, #1d1324, #140d1a);
+  min-width: 0;
+}
+
+.sk-overview-card .sk-story {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+
+.sk-overview-card .sk-story h2 {
+  font-size: 17px !important;
+  line-height: 1.4 !important;
+  margin: 6px 0 8px !important;
+}
+
+.sk-overview-card .sk-story-body p {
+  font-size: 13px !important;
+  line-height: 1.72 !important;
+  color: var(--text-secondary);
+}
+
+.sk-overview-card .ng-stock-forecast {
+  margin: 0 !important;
+}
+
+/* ── Strict Mobile Overflow Containment for All Stock Tables ─────────────── */
+.sk-tab-stage .d2-sec {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+  border-top: 0 !important;
+}
+
+.sk-tab-stage .d2-sec + .d2-sec {
+  margin-top: 8px !important;
+  padding-top: 18px !important;
+  border-top: 1px solid var(--line-soft) !important;
+}
+
+.sk-tab-stage .sk-tech-grid,
+.sk-tab-stage .sk-depth-grid,
+.sk-tab-stage .sk-company {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.sk-tab-stage .sk-tech-grid > *,
+.sk-tab-stage .sk-depth-grid > *,
+.sk-tab-stage .sk-company > *,
+.sk-tab-stage .sk-flows,
+.sk-tab-stage .sk-peers,
+.sk-tab-stage .sk-daily {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.sk-tab-stage .sk-returns,
+.sk-tab-stage .sk-tech,
+.sk-tab-stage .sk-book {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.sk-tab-stage .d2-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Mobile Responsive Perfection (<= 899px and <= 640px) ────────────────── */
+@media (max-width: 1023px) {
+  .sk-hub-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .sk-hub-id {
+    flex: 1 1 auto;
+  }
+  .sk-hub-tabs {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: flex-start;
+    padding-right: 22px;
+    -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 24px), transparent 100%);
+    mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 24px), transparent 100%);
+  }
+  .sk-overview-duo {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .sk-hub-bar {
+    top: calc(var(--ng-header, 56px) + var(--ng-pulse, 31px));
+    padding: 8px;
+    border-radius: 10px;
+    margin-bottom: 10px;
+  }
+  .sk-hub-id-name {
+    max-width: 120px;
+    font-size: 12.5px;
+  }
+  .sk-hub-bar .sk-hub-find span,
+  .sk-hub-bar .sk-hub-find kbd {
+    display: none;
+  }
+  .sk-hub-bar .sk-hub-find {
+    min-width: 36px;
+    padding: 0 9px;
+    justify-content: center;
+  }
+  .sk-hub-bar .sk-hub-tab {
+    min-height: 38px;
+    padding: 0 12px;
+    font-size: 12.5px;
+  }
+  .sk-hub-shortcuts {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+  .d2.sk .sk-shortcut-card {
+    padding: 13px 14px;
+  }
+  .sk-overview-card {
+    padding: 13px 14px;
+  }
+  .sk-top-compact .sk-hero {
+    padding: 13px !important;
+  }
+}
+
+/* Light theme polish for sticky command bar (opaque surface so text never bleeds through) */
+html[data-tone="light"] .sk-hub-bar {
+  background: #f4f5f7;
+  box-shadow: 0 4px 16px #18102418;
+}

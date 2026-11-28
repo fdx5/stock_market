@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { formatDiscussionTime } from "../../discussionTime";
 import {
   AssetTarget,
@@ -238,13 +239,14 @@ export default function ReaderPane({
         )}
       </div>
 
-      {lightboxSrc && (
+      {lightboxSrc && createPortal(
         <div className="dr-lightbox" role="dialog" aria-modal="true" aria-label="첨부 이미지 크게 보기" onClick={() => setLightboxSrc(null)}>
           <button type="button" className="dr-lightbox-close" onClick={() => setLightboxSrc(null)} aria-label="닫기">
             ×
           </button>
           <img src={lightboxSrc} alt="첨부 이미지 원본" onClick={(e) => e.stopPropagation()} />
-        </div>
+        </div>,
+        document.body,
       )}
     </article>
   );
