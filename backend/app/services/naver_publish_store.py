@@ -67,6 +67,15 @@ CREATE TABLE IF NOT EXISTS naver_blog_publish_lock (
 )
 """
 
+_LOCK_RELEASE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS naver_blog_publish_lock_releases (
+    owner TEXT PRIMARY KEY,
+    acquired_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    released_at TEXT NOT NULL
+)
+"""
+
 
 def _connect():
     if TURSO_DATABASE_URL:
@@ -79,6 +88,7 @@ def _new_ready_connection():
     conn = _connect()
     conn.execute(_SCHEMA)
     conn.execute(_LOCK_SCHEMA)
+    conn.execute(_LOCK_RELEASE_SCHEMA)
     conn.commit()
     return conn
 
@@ -122,7 +132,12 @@ def acquire_batch_lock(lease_minutes: int = 45) -> str | None:
                 owner = excluded.owner,
                 expires_at = excluded.expires_at,
                 updated_at = excluded.updated_at
-            WHERE naver_blog_publish_lock.expires_at < ?
+            WHERE naver_blog_publish_lock.owner = excluded.owner
+               OR naver_blog_publish_lock.expires_at < ?
+               OR EXISTS (
+                   SELECT 1 FROM naver_blog_publish_lock_releases
+                   WHERE owner = naver_blog_publish_lock.owner
+               )
             """,
             (owner, expires, now, now),
         )
@@ -134,7 +149,15 @@ def acquire_batch_lock(lease_minutes: int = 45) -> str | None:
 
 def release_batch_lock(owner: str) -> None:
     def _run(conn):
-        conn.execute("DELETE FROM naver_blog_publish_lock WHERE id = 1 AND owner = ?", (owner,))
+        conn.execute(
+            """
+            INSERT INTO naver_blog_publish_lock_releases (owner, acquired_at, expires_at, released_at)
+            SELECT owner, updated_at, expires_at, ?
+            FROM naver_blog_publish_lock WHERE id = 1 AND owner = ?
+            ON CONFLICT(owner) DO NOTHING
+            """,
+            (_now(), owner),
+        )
         conn.commit()
 
     _with_connection(_run)

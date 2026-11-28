@@ -43,6 +43,7 @@ SNS = [
     ("close", "16:00", "코스피·코스닥 장마감 히트맵", "kr"),
     ("movers_close", "16:15", "국내 장 마감 급등락", "kr"),
     ("world_evening", "17:00", "세계 증시 성적표 저녁", "daily"),
+    ("weekly_market", "18:00", "코스피·코스닥·나스닥 주간 시황", "saturday"),
     ("us_movers_pre", "21:10", "나스닥100 프리마켓 급등락", "us"),
     ("evening", "22:15", "오늘의 핫이슈 밤판", "daily"),
 ]
@@ -88,6 +89,8 @@ def _judge(now: dt.datetime, due: dt.datetime, done: bool, failed: bool = False,
 
 
 def _applies(day: dt.date, rule: str) -> bool:
+    if rule == "saturday":
+        return day.weekday() == 5
     if rule == "kr":
         return _trading(day, "KR")
     if rule == "us":
@@ -107,11 +110,14 @@ def _receipt(day: dt.date, edition: str) -> bool:
 
 def _sns(day: dt.date, now: dt.datetime) -> list[dict]:
     with ThreadPoolExecutor(max_workers=8) as pool:
-        receipts = dict(zip([e for e, *_ in SNS], pool.map(lambda e: _receipt(day, e[0]), SNS)))
+        scheduled = [row for row in SNS if _applies(day, row[3])]
+        receipts = dict(zip([e for e, *_ in scheduled], pool.map(lambda e: _receipt(day, e[0]), scheduled)))
     jobs = []
     for edition, hhmm, label, rule in SNS:
         due = _at(day, hhmm)
         if not _applies(day, rule):
+            if rule == "saturday":
+                continue
             jobs.append({"id": f"sns:{edition}", "group": "sns", "at": hhmm, "name": label, "status": "off", "detail": "휴장일이라 쉽니다"})
             continue
         status = _judge(now, due, receipts[edition], grace=dt.timedelta(hours=3))

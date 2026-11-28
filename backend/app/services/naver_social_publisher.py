@@ -51,6 +51,8 @@ def slot_time(day: dt.date, edition: str) -> dt.datetime:
 
 def applies(day: dt.date, edition: str) -> bool:
     rule = content.EDITIONS[edition][3]
+    if rule == "saturday":
+        return day.weekday() == 5
     if rule == "kr":
         return trading_calendar.is_trading_day(day, "KR")
     if rule == "us-prev":
@@ -138,6 +140,7 @@ def _publish(post: content.Post, cookies: list[dict], *, dry_run: bool) -> dict:
     title_paragraphs = naver_document_model.build_title_paragraphs(post.title)
     meta = {"market": post.edition}
     return naver_blog_client.publish({}, meta, title_paragraphs, post.body, post.tags, cookies, charts=post.images,
+                                     require_charts=post.edition == "weekly_market",
                                      dry_run=dry_run, category_no=post.category_no, category_name=post.category_name)
 
 

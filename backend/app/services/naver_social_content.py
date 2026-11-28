@@ -65,6 +65,7 @@ EDITIONS: dict[str, tuple[str, float, int, str, str, str]] = {
     "close": ("16:00", 6, CAT_MAPS, "kr", "heatmap", "코스피·코스닥 장마감 히트맵"),
     "movers_close": ("16:15", 6, CAT_MOVERS, "kr", "movers", "국내 장 마감 급등락 이유"),
     "world_evening": ("17:00", 4, CAT_WORLD, "daily", "world", "세계 증시 성적표 저녁"),
+    "weekly_market": ("18:00", 24, CAT_MAPS, "saturday", "weekly_market", "코스피·코스닥·나스닥 주간 시황"),
     "us_movers_pre": ("21:10", 3, CAT_MOVERS, "us-12h", "movers", "나스닥100 프리마켓 급등락 이유"),
     "evening": ("22:15", 3, CAT_HOT, "daily", "hot", "오늘의 핫이슈 밤판"),
 }
@@ -647,7 +648,49 @@ def build_movers(day: dt.date, edition: str, variant: str, *, include_image: boo
     return Post(edition, day, titles[variant[0]], body, tags, images)
 
 
-BUILDERS = {"hot": build_hot, "heatmap": build_heatmap, "world": build_world, "movers": build_movers}
+def build_weekly(day: dt.date, edition: str, variant: str) -> Post:
+    _scripts_on_path()
+    import weekly_market_social as weekly
+
+    try:
+        report = weekly.load(day, _get)
+    except weekly.NotReady as exc:
+        raise NotReady(str(exc)) from exc
+    lead = max(report.markets, key=lambda market: abs(market.weekly))
+    titles = {
+        "A": f"{report.period} 주간 시황｜코스피·코스닥·나스닥과 다음 주 전망",
+        "B": f"{report.period} 주간 증시｜{lead.name} {weekly.signed(lead.weekly)}, 코스피·코스닥·나스닥",
+        "C": f"다음 주 증시 전망｜{report.period} 코스피·코스닥·나스닥 마감과 주요 뉴스",
+    }
+    body = [paras([
+        f"{report.period} 거래소 현지 정규장 종가를 모아 한 주의 흐름을 확인했습니다. "
+        "주간 등락률은 각 시장 전주 마지막 거래일 종가 대비입니다.",
+        " · ".join(f"{market.name} {weekly.signed(market.weekly)}" for market in report.markets),
+    ], gap=True)]
+    images = []
+    for market in report.markets:
+        image_key = market.code.lower()
+        png, _ = weekly.render(report, market)
+        images.append((f"weekly_market_{image_key}.png", png))
+        body.extend([heading(f"{market.name} 주간 흐름"), _image_slot(image_key), paras(market.detail()),
+                     heading(f"{market.name} 주요 뉴스")])
+        for news in market.news:
+            body.append(_text_component([link_line(f"{news.day:%m/%d} · {news.source} · ", news.title, news.url)]))
+            if news.summary:
+                body.append(paras([news.summary]))
+        body.extend([heading(f"{market.name} 다음 주 관전 포인트"), paras([market.outlook]),
+                     _text_component([link_line("", f"{market.name} 지수 차트 보기", link(market.path, day, edition))])])
+    if report.events:
+        body.append(heading("다음 주 주요 경제 일정"))
+        for event in report.events:
+            body.append(_text_component([link_line(f"{event.day:%m/%d} {event.summary} · ", event.title, event.url)]))
+    body.extend([paras([DISCLAIMER]), _text_component([link_line("", "세계 증시 비교", link("/world-markets", day, edition))])])
+    tags = clean_tags([*weekly.TAGS, "국내증시", "미국증시", "증시전망"], 10)
+    return Post(edition, day, titles[variant[0]], body, tags, images)
+
+
+BUILDERS = {"hot": build_hot, "heatmap": build_heatmap, "world": build_world, "movers": build_movers,
+            "weekly_market": build_weekly}
 TITLE_ARMS = ("A", "B", "C")
 TAG_ARMS = ("tight", "wide")
 

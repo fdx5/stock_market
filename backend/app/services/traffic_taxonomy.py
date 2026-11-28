@@ -48,7 +48,7 @@ _AUTO_SNS = {"x", "twitter", "threads", "bluesky"}
 # names older posts used). A tagged SNS link with any other campaign was posted by hand.
 AUTO_PROGRAMS = {"us_movers_open", "us_movers_close", "nasdaq_close", "morning", "world_morning", "movers_open",
                  "midday", "movers_noon", "close", "movers_close", "world_evening", "us_movers_pre", "evening",
-                 "hot_issues", "market_close", "world_indices"}
+                 "hot_issues", "market_close", "world_indices", "weekly_market"}
 _SHARE = {"kakaotalk", "kakao", "native_share", "link_copy", "share"}
 _SEARCH = (("googlequicksearchbox", "google"), ("google.", "google"), ("search.naver", "naver"),
            ("search.daum", "daum"), ("bing.", "bing"), ("duckduckgo", "duckduckgo"), ("search.yahoo", "yahoo"),

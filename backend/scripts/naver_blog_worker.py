@@ -190,6 +190,7 @@ def main() -> int:
     parser.add_argument("--date", help="--test 날짜 (YYYY-MM-DD, 기본 오늘 KST)")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--perf", action="store_true")
+    parser.add_argument("--weekly", action="store_true", help="현재 발행 창의 주간 시황만 처리")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
     _setup_logging(args.verbose or bool(args.test) or args.perf)
@@ -202,6 +203,14 @@ def main() -> int:
     if args.test:
         day = dt.date.fromisoformat(args.date) if args.date else dt.datetime.now(KST).date()
         return test(args.test, day, args.dry_run)
+    if args.weekly:
+        from app.services import naver_social_publisher
+
+        result = naver_social_publisher.run_due(only=["weekly_market"], dry_run=args.dry_run)
+        logging.getLogger(__name__).info("Weekly blog delivery: %s", json.dumps(result, ensure_ascii=False))
+        if result["status"] in ("all_done", "nothing_due") or result["published"] or result["verified"]:
+            return 0
+        return 1
     return tick(args.verbose)
 
 

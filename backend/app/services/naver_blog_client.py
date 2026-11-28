@@ -195,6 +195,7 @@ def publish(
     cookies: list[dict],
     *,
     charts: list[tuple[str, bytes]] | None = None,
+    require_charts: bool = False,
     blog_id: str = BLOG_ID,
     dry_run: bool = False,
     category_no: int | None = None,
@@ -314,6 +315,11 @@ def publish(
                 raise NaverPublishError(f"editor returned no document (debug: {shot})")
 
             uploaded = _upload_charts(page, frame, charts or [])
+            if require_charts:
+                expected_images = {component[naver_document_model.IMAGE_MARKER] for component in body_components
+                                   if naver_document_model.IMAGE_MARKER in component}
+                if not expected_images or not expected_images.issubset(uploaded):
+                    raise NaverPublishError("Required weekly market charts did not upload")
             resolved = naver_document_model.resolve_image_slots(body_components, uploaded)
             if uploaded:
                 # The skeleton was read before the upload, so re-read it: it now holds

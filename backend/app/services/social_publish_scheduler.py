@@ -24,6 +24,8 @@ def due_slots(now: datetime):
     day = now.date()
     slots = [(clock_time(7, 15), "morning"), (clock_time(22, 15), "evening"),
              (clock_time(8), "world_morning"), (clock_time(17), "world_evening")]
+    if day.weekday() == 5:
+        slots.append((clock_time(18), "weekly_market"))
     # NASDAQ-100 close heatmap at 07:00 KST after a US session (the date before).
     if is_trading_day(day - timedelta(days=1), "US"):
         slots.append((clock_time(7), "nasdaq_close"))
