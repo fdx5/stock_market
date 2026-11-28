@@ -14,6 +14,7 @@ on:
     - cron: "50 15 * * 1-5" # 00:50 KST NASDAQ-100 movers (first hour)
     - cron: "50 21 * * 1-5" # 06:50 KST NASDAQ-100 movers (close)
     - cron: "0 8 * * *" # 17:00 KST global index scoreboard
+    - cron: "0 9 * * 6" # Saturday 18:00 KST weekly market recap
     - cron: "7,27,47 * * * *" # Recover due posts even when earlier runs are delayed
   workflow_dispatch:
     inputs:
@@ -35,7 +36,7 @@ on:
         description: Edition to preview
         required: true
         type: choice
-        options: [morning, evening, close, world_morning, world_evening, movers_open, movers_noon, movers_close, us_movers_pre, us_movers_open, us_movers_close, midday, nasdaq_close]
+        options: [morning, evening, close, world_morning, world_evening, movers_open, movers_noon, movers_close, us_movers_pre, us_movers_open, us_movers_close, midday, nasdaq_close, weekly_market]
 
 permissions:
   contents: write # Append public PNGs to the separate social-post-assets branch.
@@ -56,12 +57,16 @@ jobs:
       - name: Install PNG validation
         run: python -m pip install 'Pillow>=11,<13'
       - name: Install browser and calendar dependencies
-        if: ${{ inputs.mode != 'publish-prepared' && inputs.mode != 'verify' }}
+        if: ${{ inputs.mode != 'publish-prepared' && inputs.mode != 'verify' && inputs.edition != 'weekly_market' }}
         timeout-minutes: 6
         run: |
           python -m pip install 'playwright>=1.55,<2' 'exchange-calendars>=4.11,<5'
           python -m playwright install --with-deps chromium
           sudo apt-get install -y -q fonts-noto-cjk > /dev/null # Korean glyphs for page screenshots
+      - name: Install fonts for social cards
+        if: ${{ inputs.mode != 'publish-prepared' && inputs.mode != 'verify' }}
+        timeout-minutes: 4
+        run: |
           curl --fail --location --retry 2 --connect-timeout 15 --max-time 90 \
             --output "$RUNNER_TEMP/NotoSansCJKkr-Regular.otf" \
             https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Korean/NotoSansCJKkr-Regular.otf
@@ -78,6 +83,7 @@ jobs:
           SOCIAL_FONT_BOLD: ${{ runner.temp }}/NotoSansCJKkr-Bold.otf
           PREVIEW_DATE: ${{ inputs.preview_date }}
           PREVIEW_EDITION: ${{ inputs.edition }}
+          PYTHONPATH: backend
         run: python scripts/social_publish.py
       - uses: actions/upload-artifact@v4
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'preview' }}

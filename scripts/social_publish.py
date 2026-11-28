@@ -20,9 +20,11 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 try:
     import movers_social as movers
+    import weekly_market_social as weekly
     import world_indices_social as world
 except ModuleNotFoundError:  # Imported as scripts.social_publish by the test suite.
     from scripts import movers_social as movers
+    from scripts import weekly_market_social as weekly
     from scripts import world_indices_social as world
 
 
@@ -563,6 +565,8 @@ def deliver(day, edition, prepared=None, receipt=None):
         raise RuntimeError("No configured Buffer profiles are connected")
     if edition == "close":
         headline = f"{day:%m/%d} 국내 증시 마감"
+    elif edition == weekly.EDITION:
+        headline = weekly.headline(day)
     elif edition in world.EDITIONS:
         headline = world.headline(day, edition)
     elif edition in movers.EDITIONS:
@@ -749,6 +753,8 @@ def record_delivery(day, edition):
 
 
 def prepare(day, edition, *, preview):
+    if edition == weekly.EDITION:
+        return weekly.make(day, caption_fits, read_json)
     if edition in world.EDITIONS:
         return world.make(day, edition, caption_fits)
     if edition in movers.EDITIONS:
@@ -772,6 +778,8 @@ def due_editions(now):
         due = [(day, "morning")]
     else:
         due = [(day - dt.timedelta(days=1), "evening")]
+    if day.weekday() == 5 and now.time() >= weekly.POST_AT:
+        due.insert(0, (day, weekly.EDITION))
     # Global index scoreboards: 08:00 and 17:00 KST, every day, within 4 hours.
     for edition, slot in world.EDITIONS.items():
         start = dt.datetime.combine(day, dt.time(int(slot[:2]), int(slot[2:])), KST)
@@ -873,6 +881,11 @@ def main():
         return
     if mode == "publish-current":
         edition = os.environ["PREVIEW_EDITION"]
+        if edition == weekly.EDITION:
+            if now.weekday() != 5 or now.time() < dt.time(8):
+                raise RuntimeError("The weekly edition can run after Saturday 08:00 KST.")
+            deliver(now.date(), edition)
+            return
         early = now + dt.timedelta(hours=1) if edition in world.EDITIONS else now
         if (now.date(), edition) not in due_editions(now) + due_editions(early):
             raise RuntimeError("This edition is outside its current KST publication window")
