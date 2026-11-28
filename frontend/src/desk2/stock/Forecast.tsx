@@ -77,7 +77,7 @@ export default function Forecast({ code }: { code: string }) {
         <div className="sk-ai-probs" role="img" aria-label={probs.map((p) => `${p.label} ${p.v}%`).join(", ")}>
           {probs.map((p) => (
             <i key={p.key} className={`is-${p.key}`} style={{ flexGrow: Math.max(p.v, 1) }}>
-              {p.v >= 12 && `${p.label} ${p.v}%`}
+              {p.v >= 12 && <><span className="sk-ai-prob-name">{p.label}</span>{p.v}%</>}
             </i>
           ))}
         </div>

@@ -5,6 +5,7 @@ import { Link } from "../../router";
 import { reportDiscussionPostClick } from "../../useActivityTracking";
 import DiscussionPulseBar from "./DiscussionPulseBar";
 import ReaderPane from "./ReaderPane";
+import { fetchStockDiscussionBatch } from "./stockDiscussionFeed";
 import {
   AssetKind,
   AssetTarget,
@@ -19,8 +20,6 @@ import {
   dedupePosts,
   extractHotKeywords,
   isHotPost,
-  normalizeDomesticStream,
-  normalizeGlobalDiscussion,
 } from "./types";
 import "../../discussionExplorer.css";
 
@@ -44,12 +43,14 @@ export default function StockDiscussionRoom({
   market,
   kind,
   explorerHref,
+  initialPost,
 }: {
   code: string;
   name: string;
   market: MarketKind;
   kind: AssetKind;
   explorerHref: string;
+  initialPost?: DiscussionPost | null;
 }) {
   const asset = useMemo<AssetTarget>(() => ({ code, name: name || code, market, kind }), [code, kind, market, name]);
   const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= DESKTOP_SPLIT_MIN);
@@ -95,65 +96,23 @@ export default function StockDiscussionRoom({
   const effectiveView: ViewMode = !isDesktop && viewMode === "split" ? "stream" : viewMode;
 
   const fetchBatch = useCallback(
-    async (
+    (
       offset: string | null,
       fresh: boolean,
       preferredUs: UsSourceMode,
       signal?: AbortSignal,
-    ): Promise<{
-      items: DiscussionPost[];
-      nextOffset: string | null;
-      sourceLabel: string;
-      sourceUrl: string | null;
-    }> => {
-      if (market === "KR") {
-        const res = await api.boardStream(code, BATCH_SIZE, offset, fresh, signal);
-        return {
-          items: res.items.map(normalizeDomesticStream),
-          nextOffset: res.next_offset,
-          sourceLabel: res.source_label || "네이버페이 증권",
-          sourceUrl: res.source_url || `https://m.stock.naver.com/domestic/stock/${code}/discussion`,
-        };
-      }
-
-      if (preferredUs === "naver") {
-        const dtype = kind === "ETF" ? "foreignEtf" : "foreignStock";
-        const res = await api.globalDiscussion(code, BATCH_SIZE, offset, dtype);
-        return {
-          items: res.items.map(normalizeGlobalDiscussion),
-          nextOffset: res.next_offset,
-          sourceLabel: res.source_label || "네이버페이 증권",
-          sourceUrl: res.source_url || null,
-        };
-      }
-
-      let cursor = offset;
-      let collected: DiscussionPost[] = [];
-      let label = "토스증권";
-      let url: string | null = null;
-      for (let round = 0; round < 2 && collected.length < BATCH_SIZE; round++) {
-        const want = Math.min(30, BATCH_SIZE - collected.length);
-        const res =
-          kind === "ETF"
-            ? await api.tossEtfDiscussion(code, want, cursor)
-            : await api.tossDiscussion(code, want, cursor);
-        if (res.source_label) label = res.source_label;
-        if (res.source_url) url = res.source_url;
-        collected = dedupePosts([...collected, ...res.items.map(normalizeGlobalDiscussion)]);
-        cursor = res.next_offset;
-        if (!cursor || res.items.length === 0) break;
-      }
-      return { items: collected, nextOffset: cursor, sourceLabel: label, sourceUrl: url };
-    },
+    ) => fetchStockDiscussionBatch(code, market, kind, { limit: BATCH_SIZE, offset, fresh, source: preferredUs, signal }),
     [code, kind, market],
   );
 
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
-    setLoading(true);
+    const requested = market === "KR" || usSource === "toss" ? initialPost : null;
+    setLoading(!requested);
     setError("");
-    setPosts([]);
+    setPosts(requested ? [requested] : []);
+    setSelectedId(requested?.id ?? null);
     setNextOffset(null);
     setNewArrivals(0);
     setFilterMode("all");
@@ -161,21 +120,21 @@ export default function StockDiscussionRoom({
     setInlineQuery("");
     setActiveKeyword("");
     setExpandedIds(new Set());
-    setReadIds(new Set());
-    setSheetOpen(false);
+    setReadIds(new Set(requested ? [requested.id] : []));
+    setSheetOpen(Boolean(requested && window.innerWidth < DESKTOP_SPLIT_MIN));
     setVisibleSlice(INITIAL_STREAM_SLICE);
 
     fetchBatch(null, true, usSource, controller.signal)
       .then((res) => {
         if (cancelled) return;
-        setPosts(res.items);
+        setPosts(requested ? dedupePosts([...res.items, requested]) : res.items);
         setNextOffset(res.nextOffset);
         setSourceLabel(res.sourceLabel);
         setSourceUrl(res.sourceUrl);
-        setSelectedId(res.items[0]?.id ?? null);
+        if (!requested) setSelectedId(res.items[0]?.id ?? null);
       })
       .catch((err: Error) => {
-        if (!cancelled && err.name !== "AbortError") {
+        if (!cancelled && !requested && err.name !== "AbortError") {
           setError(err.message || "종목토론을 불러오지 못했습니다.");
         }
       })
@@ -187,7 +146,7 @@ export default function StockDiscussionRoom({
       cancelled = true;
       controller.abort();
     };
-  }, [code, kind, market, usSource, fetchBatch]);
+  }, [fetchBatch, initialPost, market, usSource]);
 
   useEffect(() => {
     if (!sheetOpen) return;

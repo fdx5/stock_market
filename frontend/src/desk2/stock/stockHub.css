@@ -342,6 +342,111 @@
   color: #35e6ad;
 }
 
+.sk-discussion-ticker {
+  --ticker-accent: var(--accent-neon, #bd8cff);
+  display: flex;
+  min-width: 0;
+  min-height: 44px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--ticker-accent) 40%, transparent);
+  border-radius: 8px;
+  background: var(--p1);
+}
+.sk-discussion-ticker-label,
+.sk-discussion-ticker-toggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--ticker-accent) 15%, var(--p1));
+  color: var(--text-primary);
+}
+.sk-discussion-ticker-label {
+  border-inline-end: 1px solid var(--line-soft);
+  font: 700 12px var(--f-sans);
+  white-space: nowrap;
+}
+.sk-discussion-ticker-toggle {
+  min-width: 44px;
+  border: 0;
+  border-inline-start: 1px solid var(--line-soft);
+  cursor: pointer;
+}
+.sk-discussion-ticker-window {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  scrollbar-width: none;
+}
+.sk-discussion-ticker-track,
+.sk-discussion-ticker-sequence {
+  display: flex;
+  flex: none;
+  width: max-content;
+}
+.sk-discussion-ticker-track[data-scroll] {
+  animation: d2-tape 60s linear infinite;
+}
+.sk-discussion-ticker-window:hover .sk-discussion-ticker-track {
+  animation-play-state: paused;
+}
+.sk-discussion-ticker-item {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(26rem, 75vw);
+  padding: 0 14px;
+  border: 0;
+  border-inline-end: 1px solid var(--line-soft);
+  background: none;
+  color: var(--text-primary);
+  font: 650 13px var(--f-sans);
+  text-align: start;
+  cursor: pointer;
+}
+.sk-discussion-ticker-item b {
+  flex: none;
+  color: var(--ticker-accent);
+  font: 800 13px var(--f-num);
+  font-variant-numeric: tabular-nums;
+}
+.sk-discussion-ticker-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sk-discussion-ticker-item:hover span {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.sk-discussion-ticker :is(.sk-discussion-ticker-item, .sk-discussion-ticker-toggle):focus-visible {
+  outline: 2px solid var(--ticker-accent);
+  outline-offset: -2px;
+}
+:is(.sk-discussion-ticker[data-paused], html[data-fx="minimal"] .sk-discussion-ticker) .sk-discussion-ticker-window,
+.sk-discussion-ticker-window:has(.sk-discussion-ticker-item:focus-visible) {
+  overflow-x: auto;
+}
+:is(.sk-discussion-ticker[data-paused], html[data-fx="minimal"] .sk-discussion-ticker, .sk-discussion-ticker-window:has(.sk-discussion-ticker-item:focus-visible)) .sk-discussion-ticker-track {
+  animation: none;
+}
+:is(.sk-discussion-ticker[data-paused], html[data-fx="minimal"] .sk-discussion-ticker, .sk-discussion-ticker-window:has(.sk-discussion-ticker-item:focus-visible)) .sk-discussion-ticker-sequence[aria-hidden],
+html[data-fx="minimal"] .sk-discussion-ticker-toggle {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sk-discussion-ticker-window { overflow-x: auto; }
+  .sk-discussion-ticker-track[data-scroll] { animation: none; }
+  .sk-discussion-ticker-sequence[aria-hidden],
+  .sk-discussion-ticker-toggle { display: none; }
+}
+@media print {
+  .sk-discussion-ticker { display: none; }
+}
+
 .sk-overview-duo {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);

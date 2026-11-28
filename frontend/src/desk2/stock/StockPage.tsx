@@ -17,6 +17,7 @@ import { useWatchlist } from "../../useWatchlist";
 import { recentStockUrl, recordRecent } from "../../watchlist";
 import StockLogo from "../../components/StockLogo";
 import StockDiscussionRoom from "../../components/discussion/StockDiscussionRoom";
+import type { DiscussionPost } from "../../components/discussion/types";
 import StockNewsRoom from "../../components/discussion/StockNewsRoom";
 import Colophon from "../Colophon";
 import CommodityDesk from "../CommodityDesk";
@@ -31,6 +32,7 @@ import Flows from "./Flows";
 import Forecast from "./Forecast";
 import Peers, { PeerSummary } from "./Peers";
 import StockChart from "./StockChart";
+import StockDiscussionTicker from "./StockDiscussionTicker";
 import Technicals, { RangeBar, Returns, periodReturns } from "./Technicals";
 import { writeStory } from "./story";
 import StockInsights from "./StockInsights";
@@ -84,47 +86,6 @@ function useBubbleMarket(code: string, us: boolean): string | null {
   return m;
 }
 
-function TalkTape({
-  code,
-  us,
-  asset,
-  onOpenDiscussion,
-}: {
-  code: string;
-  us: boolean;
-  asset: "STOCK" | "ETF";
-  onOpenDiscussion: () => void;
-}) {
-  const L = useL();
-  const [titles, setTitles] = useState<{ id: string; title: string }[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    const req = us
-      ? (asset === "ETF" ? api.tossEtfDiscussion(code, 20) : api.globalDiscussion(code, 20)).then((r) => r.items.map((p) => ({ id: p.id, title: p.title || p.text })))
-      : api.board(code, 1, false).then((r) => r.items.map((p) => ({ id: p.nid, title: p.title })));
-    req.then((t) => !cancelled && setTitles(t.slice(0, 20))).catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [code, us, asset]);
-  if (titles.length === 0) return null;
-  return (
-    <div className="d2-tape sk-talktape" aria-label={L("최근 종목토론 제목", "Latest discussion titles")}>
-      <span className="d2-tape-label">TALK</span>
-      <div className="d2-tape-viewport">
-        <div className="d2-tape-track" style={{ animationDuration: `${Math.max(40, titles.length * 6)}s`, "--tape-dur": `${Math.max(40, titles.length * 6)}s` } as React.CSSProperties}>
-          {[...titles, ...titles].map((t, i) => (
-            <button key={`${t.id}-${i}`} type="button" className="d2-tape-cell" onClick={onOpenDiscussion}>
-              <em>{String((i % titles.length) + 1).padStart(2, "0")}</em>
-              <span>{t.title}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function StockPage({ code: rawCode, isEtf = false }: { code: string; isEtf?: boolean }) {
   const design = useDesignMode();
   const { lang } = useLanguage();
@@ -152,6 +113,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
   const [error, setError] = useState("");
   const [finderOpen, setFinderOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<StockTabId>(() => resolveInitialTab(us, isEtf));
+  const [discussionPost, setDiscussionPost] = useState<DiscussionPost | null>(null);
   const [copied, setCopied] = useState(false);
   const { recents } = useWatchlist();
   const bubble = useBubbleMarket(code, us);
@@ -164,6 +126,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
 
   useEffect(() => {
     setActiveTab(resolveInitialTab(us, isEtf));
+    setDiscussionPost(null);
   }, [code, us, isEtf]);
 
   useEffect(() => {
@@ -317,7 +280,8 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
     return list;
   }, [us, isEtf]);
 
-  const selectTab = useCallback((next: StockTabId, scrollToStage = true) => {
+  const selectTab = useCallback((next: StockTabId, scrollToStage = true, post: DiscussionPost | null = null) => {
+    setDiscussionPost(post);
     setActiveTab(next);
     if (scrollToStage && tabStageRef.current) {
       const rect = tabStageRef.current.getBoundingClientRect();
@@ -533,6 +497,8 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
             <div className="sk-tab-stage" ref={tabStageRef} role="tabpanel">
               {activeTab === "overview" && (
                 <>
+                  <StockDiscussionTicker key={`${code}:${asset}`} code={code} market={market} kind={asset}
+                    onSelect={(post) => selectTab("discussion", true, post)} />
                   <StockInsights model={brief} code={code} isEtf={isEtf} receivedAt={receivedAt} quoteUnavailable={quoteUnavailable} />
 
                   {/* 1-Tap Shortcuts into Dedicated News & Discussion Rooms */}
@@ -555,8 +521,6 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
                       <span className="sk-shortcut-arrow" aria-hidden="true">→</span>
                     </button>
                   </div>
-
-                  <TalkTape code={code} us={us} asset={asset} onOpenDiscussion={() => selectTab("discussion", true)} />
 
                   {/* Executive Duo: Auto Data Story + AI Forecast */}
                   <div className="sk-overview-duo">
@@ -641,6 +605,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
                     market={market}
                     kind={asset}
                     explorerHref={explorer}
+                    initialPost={discussionPost}
                   />
                 </section>
               )}
