@@ -119,8 +119,8 @@
   .hi-numbers{grid-template-columns:repeat(2,minmax(0,1fr))}
   .hi-importance{margin-left:0}
 }
-:root[data-tone="light"] .hi-page{--hi-card:#ffffffee;--hi-line:#e4d9ea}
-:root[data-tone="light"] .hi-mast{background:radial-gradient(120% 140% at 0% 0%,#ff5f6d14,transparent 46%),#fff}
+:root[data-tone="light"] .hi-page{--hi-card:var(--bg-panel);--hi-line:var(--line-soft)}
+:root[data-tone="light"] .hi-mast{background:radial-gradient(120% 140% at 0% 0%,#ff5f6d14,transparent 46%),var(--bg-panel)}
 :root[data-tone="light"] .hi-mast h1,:root[data-tone="light"] .hi-stamp b,:root[data-tone="light"] .hi-summary{color:#1f1724}
 :root[data-tone="light"] .hi-dek,:root[data-tone="light"] .hi-body>p,:root[data-tone="light"] .hi-why p,:root[data-tone="light"] .hi-index a,:root[data-tone="light"] .hi-takeaways{color:#3a3040}
-:root[data-tone="light"] .hi-panel,:root[data-tone="light"] .hi-numbers>div{background:#fff}
+:root[data-tone="light"] .hi-panel,:root[data-tone="light"] .hi-numbers>div{background:var(--bg-panel)}

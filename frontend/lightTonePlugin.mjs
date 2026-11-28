@@ -5,7 +5,7 @@
 // light counterpart for each colour-bearing declaration, scoped under
 // :root[data-tone="light"], directly after the original rule. Colours are
 // remapped in OKLCH: hue is kept, lightness is folded so dark surfaces become
-// soft cool whites (elevated panels whitest), light ink becomes toned-down
+// cool tinted neutrals (elevated panels lightest), light ink becomes toned-down
 // slate, and neon accents become deeper, readable shades. Hand-tuned rules in
 // files marked `tone:manual` are left untouched and are applied on top.
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -46,11 +46,10 @@ function inGamut(L, C, h) {
   for (let i = 0; i < 18; i++) { const mid = (lo + hi) / 2; if (fromOklch(L, mid, h).every(v => v >= -1e-4 && v <= 1 + 1e-4)) lo = mid; else hi = mid; }
   return fromOklch(L, lo, h);
 }
-// Lightness fold: page (darkest) -> cool off-white, panels (slightly lighter in
-// the dark theme) -> white, hovers/lines -> soft greys, ink -> deep slate.
-// 2026-11-27: softened one step (owner: light tone too bright) — page ~#e9ebef, panels ~#f4f5f7, no pure white.
-const KNOTS = [[0, .928], [.1, .933], [.14, .942], [.17, .958], [.2, .966], [.235, .95], [.28, .93], [.34, .905], [.42, .84], [.5, .74], [.58, .64], [.66, .555], [.74, .48], [.82, .41], [.9, .33], [.96, .255], [1, .22]];
-const TEXT_KNOTS = L => L >= .95 ? .24 : L >= .85 ? .24 + (.95 - L) * .9 : L >= .7 ? .33 + (.85 - L) * .8 : Math.min(.54, .45 + (.7 - L) * .45);
+// The darkest source values become the canvas; raised surfaces are a step
+// lighter, while controls and dividers take progressively stronger tints.
+const KNOTS = [[0, .898], [.1, .903], [.14, .913], [.17, .929], [.2, .947], [.235, .935], [.28, .916], [.34, .892], [.42, .83], [.5, .73], [.58, .64], [.66, .555], [.74, .48], [.82, .41], [.9, .33], [.96, .255], [1, .22]];
+const TEXT_KNOTS = L => L >= .95 ? .24 : L >= .85 ? .24 + (.95 - L) * .9 : L >= .7 ? .33 + (.85 - L) * .8 : Math.min(.50, .45 + (.7 - L) * .45);
 function foldL(L) {
   if (L <= 0) return KNOTS[0][1];
   for (let i = 1; i < KNOTS.length; i++) {
@@ -98,14 +97,12 @@ export function lightColor(token, role = "paint") {
   }
   let L2 = foldL(L), C2 = C;
   if (role === "text") {
-    // Text needs AA contrast on white even at 8-11px: every ink lands at or
-    // below L .54 (~4.6:1 on white), quiet labels included; faint text gains alpha.
+    // Quiet ink needs headroom on tinted panels, and faint text gains alpha.
     if (L > .3) L2 = Math.min(L2, TEXT_KNOTS(L));
     if (a < 1) a = Math.min(1, a * 1.25 + .22);
   }
-  // Vivid signal colours (neon green, amber, cyan) keep a mid lightness so they
-  // stay recognisably themselves on white instead of sinking to brown/olive.
-  if (C > .09 && L > .55) L2 = Math.min(.58, Math.max(.47, L2));
+  // Keep vivid signals distinctive while giving text a deeper shade.
+  if (C > .09 && L > .55) L2 = Math.min(role === "text" ? .50 : .58, Math.max(.44, L2));
   if (L2 > .93) C2 = Math.min(C * .45, .011);          // surfaces: almost neutral, cool
   else if (L2 > .8) C2 = Math.min(C * .6, .03);        // lines and quiet fills
   else if (L2 < .36) C2 = Math.min(C * .55, .045);     // ink: toned, not tinted

@@ -6,7 +6,7 @@
 .ad-zone-ins,.ad-zone-dummy{width:var(--ad-w);height:var(--ad-h);max-width:100%}
 .ad-zone-dummy{display:grid;place-items:center;border:1px dashed #d6b54e80;color:#d6b54e;font:12px var(--f-num);background:repeating-linear-gradient(45deg,#d6b54e0a 0 10px,transparent 10px 20px)}
 .ad-zone:is([data-state="empty"],[data-ad-fits="false"]){display:none}
-html[data-tone="light"] .ad-zone{background:#f6f4f8}
+html[data-tone="light"] .ad-zone{background:var(--bg-elevated)}
 
 /* wide screens: a rail column beside the content, the ad sticky under the header */
 @media(min-width:1680px){
@@ -52,13 +52,13 @@ html[data-tone="light"] .ad-zone{background:#f6f4f8}
 .ad-inarticle[data-state="empty"]{display:none}
 .ad-fluid-dummy{width:100%;height:220px}
 .hi-stories>.ad-inarticle{margin:4px 0;padding:14px 16px;border:1px solid var(--line-soft,#ffffff1a);border-radius:10px;background:#0c080f}
-html[data-tone="light"] .hi-stories>.ad-inarticle{background:#f6f4f8}
+html[data-tone="light"] .hi-stories>.ad-inarticle{background:var(--bg-elevated)}
 
 /* multiplex: under the home rail's banner */
 .ad-multiplex{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line-soft,#ffffff1a);border-radius:8px;background:#0c080f}
 .ad-multiplex[data-state="empty"]{display:none}
 .ad-multiplex .adsbygoogle{min-height:1px}
-html[data-tone="light"] .ad-multiplex{background:#f6f4f8}
+html[data-tone="light"] .ad-multiplex{background:var(--bg-elevated)}
 .ng-home-rail>.ad-multiplex{margin-top:14px}
 .ng-home-rail>.ad-multiplex .ad-fluid-dummy{height:900px}
 .ad-multiplex>.ad-zone-label{padding-bottom:2px}

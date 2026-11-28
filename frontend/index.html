@@ -39,7 +39,7 @@
         try { if (localStorage.getItem("kospimap_tone") === "light") tone = "light"; } catch (e) {}
         document.documentElement.setAttribute("data-tone", tone);
         document.documentElement.style.colorScheme = tone;
-        document.querySelector('meta[name="theme-color"]').setAttribute("content", tone === "light" ? "#f7f5fa" : "#100d13");
+        document.querySelector('meta[name="theme-color"]').setAttribute("content", tone === "light" ? "#e2e4ef" : "#100d13");
       })();
     </script>
     <script>
@@ -75,6 +75,7 @@
       html, body, #root { min-height: 100%; }
       html, body { margin: 0; background: #0d0d0d; }
       html[data-design="neo"], html[data-design="neo"] body { background: #100d13; }
+      html[data-design="neo"][data-tone="light"], html[data-design="neo"][data-tone="light"] body { background: #e2e4ef; }
       html.js [data-seo-shell="true"] { visibility: hidden; }
       /* AdSense adds this status once it confirms no creative was returned. */
       ins.adsbygoogle[data-ad-status="unfilled"] { display: none !important; }

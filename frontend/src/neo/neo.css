@@ -239,7 +239,6 @@ a.ng-gold-link>span:first-child{font-weight:700;color:#ffd76a;background-image:l
 a.ng-gold-link{border-left-color:#e9b54a66}
 a.ng-gold-link:hover>span:first-child{filter:drop-shadow(0 0 6px #ffd05acc) drop-shadow(0 0 14px #ffa82466)}
 @keyframes ng-gold-sheen{from{background-position:0% 0}to{background-position:-220% 0}}
-:root[data-tone="light"] a.ng-gold-link>span:first-child{-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;background-image:linear-gradient(100deg,#9a6a00 0%,#d39b12 25%,#8a5c00 50%,#c88a06 75%,#9a6a00 100%);filter:drop-shadow(0 0 3px #f0b42a59)}
 @media (prefers-reduced-motion:reduce){a.ng-gold-link>span:first-child{animation:none}}
 /* Rainbow-star emblem after the 코스피 맵 / 나스닥 100 맵 labels. Sits outside the gold text clip (its own fill). */
 .ng-rainbow-star{display:inline-block;width:16px;height:16px;margin-left:6px;vertical-align:-3px;flex:none;overflow:visible;-webkit-text-fill-color:initial;filter:drop-shadow(0 0 3px #ff9ad566) drop-shadow(0 0 6px #7cc4ff40);animation:ng-rainbow-hue 7s linear infinite}
@@ -249,6 +248,4 @@ a:hover>span>.ng-rainbow-star{filter:drop-shadow(0 0 4px #ffb3e6aa) drop-shadow(
 @keyframes ng-rainbow-hue{to{filter:drop-shadow(0 0 3px #ff9ad566) drop-shadow(0 0 6px #7cc4ff40) hue-rotate(360deg)}}
 @keyframes ng-rainbow-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
 @keyframes ng-rainbow-glint{0%,55%,100%{opacity:0;transform:scale(.3) rotate(0)}70%{opacity:1;transform:scale(1) rotate(45deg)}85%{opacity:0;transform:scale(.4) rotate(90deg)}}
-:root[data-tone="light"] .ng-rainbow-star{filter:drop-shadow(0 1px 1.5px #3b2a5a40);animation:none}
-:root[data-tone="light"] .ng-rainbow-star__glint{fill:#fff;filter:drop-shadow(0 0 1px #8a6bd0)}
 @media (prefers-reduced-motion:reduce){.ng-rainbow-star,.ng-rainbow-star__body,.ng-rainbow-star__glint{animation:none}.ng-rainbow-star__glint{opacity:.9}}

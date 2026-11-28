@@ -34,12 +34,12 @@ const NEO: ThemeColors = {
   blue: "#64aaff", aqua: "#a8bca0", yellow: "#d6b54e", violet: "#bf85ff", good: "#a8bca0", critical: "#ff6c83",
   series: ["#64aaff", "#f27560", "#a8bca0", "#d6b54e", "#ed8dd4", "#f1e4c4", "#bf85ff"],
 };
-// Light tone of the neon terminal: cool white planes, slate ink, deep neon accents.
+// Match the light chart surfaces and signals to the shared neoLight.css tokens.
 const NEO_LIGHT: ThemeColors = {
-  surface: "#ffffff", textPrimary: "#25222b", textSecondary: "#5d5568", textMuted: "#7a7285",
-  gridline: "#e6e2ec", baseline: "#b9b1c4", up: "#c8304a", down: "#1f63c4",
-  blue: "#1f63c4", aqua: "#38735f", yellow: "#94700f", violet: "#7642b8", good: "#2f7a5a", critical: "#c8304a",
-  series: ["#1f63c4", "#c9502f", "#38735f", "#94700f", "#b4428f", "#6b6455", "#7642b8"],
+  surface: "#efeff7", textPrimary: "#232137", textSecondary: "#463e57", textMuted: "#5e556e",
+  gridline: "#cbc6d9", baseline: "#82788f", up: "#a42946", down: "#21579f",
+  blue: "#21579f", aqua: "#30664f", yellow: "#765315", violet: "#653c9e", good: "#30664f", critical: "#a42946",
+  series: ["#21579f", "#a53b35", "#30664f", "#765315", "#9b397d", "#5e556e", "#653c9e"],
 };
 // A single dark appearance. Stored former light-mode preferences are left intact,
 // but no longer control the UI. Presentation never mutates saved user data.
@@ -47,7 +47,7 @@ const listeners = new Set<() => void>();
 function applyDomAttribute() {
   if (typeof document === "undefined") return;
   document.documentElement.setAttribute("data-theme", "dark");
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", getTone() === "light" ? "#f7f5fa" : isNeoDesign() ? "#100d13" : "#0d0d0d");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", getTone() === "light" ? "#e2e4ef" : isNeoDesign() ? "#100d13" : "#0d0d0d");
 }
 applyDomAttribute();
 export function getThemeMode(): ThemeMode { return "dark"; }

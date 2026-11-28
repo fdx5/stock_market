@@ -16,47 +16,178 @@
 /* view-transition cross-fade when switching tone */
 ::view-transition-old(root),::view-transition-new(root){animation-duration:.32s;animation-timing-function:ease}
 
+@media screen {
+  html:root[data-design="neo"][data-theme][data-tone="light"] {
+    --bg-root: #e2e4ef;
+    --bg-sunken: #dedfeb;
+    --bg-elevated: #e9eaf3;
+    --bg-panel: #efeff7;
+    --bg-glass: #f0eff8f7;
+    --bg-hover: #e2deee;
+    --bg-selected: #dcd4ee;
+    --p2: var(--bg-hover);
+    --text-primary: #232137;
+    --text-secondary: #463e57;
+    --text-muted: #5e556e;
+    --line-soft: #c5bfd5;
+    --line-active: #8665b5;
+    --gridline: #cbc6d9;
+    --baseline: #82788f;
+    --rule-2: #b5a7cd;
+    --rule-ink: #827096;
+    --mark: #dfd4f0;
+    --accent-neon: #653c9e;
+    --mustard: #765315;
+    --vermilion: #a53b35;
+    --mint: #30664f;
+    --market-up: #a42946;
+    --market-down: #21579f;
+    --market-flat: var(--text-muted);
+    --glow-focus: 0 0 0 1px var(--line-active);
+    --focus-ring: 0 0 0 3px #7851b352;
+    --scrim: #25203880;
+  }
+
+  :root[data-tone="light"] :is(.ng-header,.ng-top-rail,.ng-pulse,.ng-mobile-nav) {
+    background: var(--bg-elevated);
+    border-color: var(--line-soft);
+  }
+  :root[data-tone="light"] :is(.ng-sidebar,.ng-audio-toolbar) {
+    background: var(--bg-sunken);
+    border-color: var(--line-soft);
+  }
+  :root[data-tone="light"] :is(.ng-context,.ng-sidebar-cap) { border-color: var(--line-soft); }
+  :root[data-tone="light"] :is(.ng-nav-group a,.ng-directory-grid a,.ng-mobile-nav>a,.ng-mobile-nav>button) {
+    color: var(--text-secondary);
+  }
+  :root[data-tone="light"] :is(.ng-nav-group,.ng-directory-grid,.ng-phone-tree) a:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  :root[data-tone="light"] :is(.ng-nav-group,.ng-directory-grid,.ng-phone-tree,.ng-mobile-nav) a[aria-current] {
+    background: var(--bg-selected);
+    color: var(--text-primary);
+  }
+  :root[data-tone="light"] .ng-directory-button {
+    background: var(--bg-selected);
+    color: var(--accent-neon);
+  }
+  :root[data-tone="light"] .ng-dialog {
+    background: var(--bg-panel);
+    border-color: var(--line-active);
+    box-shadow: 0 14px 46px #26203e30;
+  }
+  :root[data-tone="light"] :is(.ng-search-trigger,.ng-dialog .ng-directory-search,.ng-phone-search) {
+    background: var(--bg-glass);
+    border-color: var(--line-soft);
+  }
+  html[data-design="neo"][data-tone="light"] .ng-footer .d2-colophon { background: var(--bg-elevated); }
+
+  :root[data-tone="light"] .ng-atlas .sc-scanner {
+    --sc-rule: var(--line-soft);
+    --sc-muted: var(--text-muted);
+    --sc-up-neon: var(--market-up);
+    --sc-down-neon: var(--market-down);
+    color: var(--text-primary);
+  }
+  :root[data-tone="light"] .ng-atlas .sc-heading h2 { color: var(--text-primary); text-shadow: none; }
+  :root[data-tone="light"] .ng-atlas .sc-scanner :is(.sc-markets,.sc-grid) {
+    border-color: var(--line-soft);
+    box-shadow: none;
+  }
+  :root[data-tone="light"] .ng-atlas .sc-scanner :is(.sc-markets>button,.sc-controls,.sc-board-footer,.sc-empty) {
+    background: var(--bg-panel);
+    color: var(--text-secondary);
+  }
+  :root[data-tone="light"] .ng-atlas .sc-scanner .sc-markets>button[aria-pressed="true"] {
+    background: var(--bg-selected);
+    color: var(--text-primary);
+    box-shadow: inset 0 2px var(--accent-neon);
+  }
+  :root[data-tone="light"] .ng-atlas .sc-scanner .sc-controls button[aria-pressed="true"] {
+    background: var(--bg-selected);
+    color: var(--accent-neon);
+    border-color: var(--accent-neon);
+    text-shadow: none;
+    box-shadow: none;
+  }
+  :root[data-tone="light"] .ng-atlas .ng-asset-belt { border-color: var(--line-soft); }
+  :root[data-tone="light"] .ng-atlas .ng-asset-belt>div:first-child {
+    background: var(--bg-selected);
+    color: var(--text-primary);
+  }
+  :root[data-tone="light"] .ng-atlas .ng-asset-belt>div:first-child>span { color: var(--accent-neon); }
+  :root[data-tone="light"] .ng-atlas .ng-asset-belt>div:last-of-type { background: var(--line-soft); }
+  :root[data-tone="light"] .ng-atlas .ng-asset-link { background: var(--bg-panel); }
+  :root[data-tone="light"] .ng-atlas .ng-asset-link:hover { background: var(--bg-hover); }
+}
+
 /* ---- brand ---- */
-:root[data-tone="light"] .nl-word{fill:#2b2631}
-:root[data-tone="light"] .nl-word>.nl-hub{fill:#a07b17}
-:root[data-tone="light"] .nl-sub{fill:#6f6579}
-:root[data-tone="light"] .ng-header-current{opacity:.6}
+:root[data-tone="light"] .nl-word{fill:var(--text-primary)}
+:root[data-tone="light"] .nl-word>.nl-hub{fill:var(--mustard)}
+:root[data-tone="light"] .nl-sub{fill:var(--text-muted)}
+:root[data-tone="light"] .ng-header-current{opacity:.46}
+:root[data-tone="light"] a.ng-gold-link>span:first-child{
+  -webkit-text-fill-color:currentColor;
+  color:var(--mustard);
+  background:none;
+  filter:none;
+  animation:none;
+}
+:root[data-tone="light"] .ng-rainbow-star{
+  --star-red:#c5224f;
+  --star-orange:#d75b21;
+  --star-yellow:#de9b0d;
+  --star-green:#218863;
+  --star-blue:#287dc6;
+  --star-violet:#683bb7;
+  --star-pink:#a8389b;
+  width:17px;
+  height:17px;
+  filter:drop-shadow(0 1px 1px #35234c38);
+  animation:none;
+}
+:root[data-tone="light"] .ng-rainbow-star__body{
+  stroke:#483057;
+  stroke-width:1.25;
+  stroke-linejoin:round;
+  animation:none;
+}
+:root[data-tone="light"] .ng-rainbow-star__glint{fill:#fff;filter:drop-shadow(0 0 1px #533075)}
 
 /* ---- background effects: the additive neon light is rendered as soft ink on
-   white — inverting the canvas keeps every hue, turns glow into tint. ---- */
-:root[data-tone="light"] :is(.ng-neon-river,.ng-silk){background:#f5f3f8}
-:root[data-tone="light"] .ng-electric-canvas{filter:invert(1) hue-rotate(180deg) saturate(1.25);mix-blend-mode:multiply;opacity:.42}
-:root[data-tone="light"] .ng-silk-canvas{filter:invert(1) hue-rotate(180deg) saturate(1.3);mix-blend-mode:multiply;opacity:.38}
+   the tinted canvas. Inversion turns the glow into pigment. ---- */
+:root[data-tone="light"] :is(.ng-neon-river,.ng-silk){background:var(--bg-root)}
+:root[data-tone="light"] .ng-electric-canvas{filter:invert(1) hue-rotate(180deg) saturate(.9);mix-blend-mode:multiply;opacity:.26}
+:root[data-tone="light"] .ng-silk-canvas{filter:invert(1) hue-rotate(180deg) saturate(.9);mix-blend-mode:multiply;opacity:.24}
 :root[data-tone="light"] .ng-electric-canvas[data-state="loading"],:root[data-tone="light"] .ng-silk-canvas[data-state="loading"]{opacity:0}
-:root[data-tone="light"] :is(.ng-electric-shade,.ng-silk-shade){background:radial-gradient(ellipse at 50% 48%,transparent 45%,#f5f3f880 100%)}
+:root[data-tone="light"] :is(.ng-electric-shade,.ng-silk-shade){background:radial-gradient(ellipse at 50% 48%,transparent 45%,#e2e4ef80 100%)}
 
-/* ---- pulse board cells (light): the cells float over the dark sea, so they become
-   near-opaque white glass with a quiet tint; numbers take a deep shade of their own colour. ---- */
-html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock{background:linear-gradient(118deg,color-mix(in srgb,var(--sc-color) calc(var(--sc-strength)*20% + 5%),#fffffff5),#fffffff2 92%);box-shadow:inset 0 0 0 1px #2a1f3a17,0 1px 4px #12081f2e}
+/* Pulse board cells carry the light palette over the sea. */
+html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock{background:linear-gradient(118deg,color-mix(in srgb,var(--sc-color) calc(var(--sc-strength)*20% + 5%),var(--bg-glass)),var(--bg-glass) 92%);box-shadow:inset 0 0 0 1px #2a1f3a17,0 1px 4px #12081f2e}
 html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock:hover{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--sc-color) 70%,#2a1f3a),0 2px 12px color-mix(in srgb,var(--sc-color) 30%,transparent)}
 html:root[data-tone="light"] .sc-scanner .sc-stock-return{color:color-mix(in srgb,var(--sc-color) 55%,#1c1324);text-shadow:none;font-weight:650}
 html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock-name{color:#221c29}
 html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock:hover .sc-stock-name{color:#120d18}
 html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock-price{color:#4a4153}
 html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock>small{color:#655b70}
-@media(max-width:899px){html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock{background:linear-gradient(118deg,color-mix(in srgb,var(--sc-color) calc(var(--sc-strength)*20% + 5%),#fffffff7),#fffffff5 92%)}}
 /* pulse board header strip over the sea: market tabs, breadth, sort */
-html:root[data-tone="light"] .pb-tabs{background:#ffffffe6;border-color:#2a1f3a24;box-shadow:0 1px 4px #12081f2e}
+html:root[data-tone="light"] .pb-tabs{background:var(--bg-glass);border-color:var(--line-soft);box-shadow:0 1px 4px #12081f2e}
 html:root[data-tone="light"] .pb-tab{color:#2e2735}
-html:root[data-tone="light"] .pb-futures{background:#ffffffe6;border-color:#2a1f3a24;border-left-color:var(--workspace-accent,var(--accent-neon));box-shadow:0 1px 4px #12081f2e;color:#4f4659}
+html:root[data-tone="light"] .pb-futures{background:var(--bg-glass);border-color:var(--line-soft);border-left-color:var(--workspace-accent,var(--accent-neon));box-shadow:0 1px 4px #12081f2e;color:var(--text-secondary)}
 html:root[data-tone="light"] .pb-futures strong{color:#1a1420}
 html:root[data-tone="light"] .pb-futures small{color:#6b6175}
 html:root[data-tone="light"] .pb-futures b{text-shadow:none!important;font-weight:650}
 html:root[data-tone="light"] .pb-futures b.is-up{color:#b8283f}
 html:root[data-tone="light"] .pb-futures b.is-down{color:#1f5fb8}
 html:root[data-tone="light"] .pb-tab:hover{background:#2a1f3a0d;color:#1a1420}
-html:root[data-tone="light"] .pb-tab[aria-selected=true]{background:linear-gradient(120deg,color-mix(in srgb,var(--pb-glow) 18%,#ffffff),#ffffff);color:#1a1420;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--pb-glow) 55%,#2a1f3a)}
+html:root[data-tone="light"] .pb-tab[aria-selected=true]{background:linear-gradient(120deg,color-mix(in srgb,var(--pb-glow) 18%,var(--bg-panel)),var(--bg-panel));color:var(--text-primary);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--pb-glow) 55%,#2a1f3a)}
 html:root[data-tone="light"] .pb-tab-name{color:#4f4659}
 html:root[data-tone="light"] .pb-tab b{text-shadow:none!important;font-weight:650}
 html:root[data-tone="light"] .pb-tab b.is-up{color:#b8283f}
 html:root[data-tone="light"] .pb-tab b.is-down{color:#1f5fb8}
-html:root[data-tone="light"] .sc-scanner.pb-board .pb-breadth{background:#ffffffd9;border-radius:999px;padding-inline:12px;box-shadow:0 1px 4px #12081f2e}
+html:root[data-tone="light"] .sc-scanner.pb-board .pb-breadth{background:var(--bg-glass);border-radius:999px;padding-inline:12px;box-shadow:0 1px 4px #12081f2e}
 html:root[data-tone="light"] .sc-scanner.pb-board .pb-breadth .sc-up{color:#b8283f}
 html:root[data-tone="light"] .sc-scanner.pb-board .pb-breadth .sc-down{color:#1f5fb8}
-html:root[data-tone="light"] .sc-scanner.pb-board .pb-sort>button{background:#ffffffe6;color:#3a3243;border-color:#2a1f3a26}
-html:root[data-tone="light"] .sc-scanner.pb-board .pb-sort>button[aria-pressed=true]{background:color-mix(in srgb,var(--pb-glow) 18%,#ffffff);color:#2a2131;border-color:color-mix(in srgb,var(--pb-glow) 60%,#2a2131)}
+html:root[data-tone="light"] .sc-scanner.pb-board .pb-sort>button{background:var(--bg-glass);color:var(--text-secondary);border-color:var(--line-soft)}
+html:root[data-tone="light"] .sc-scanner.pb-board .pb-sort>button[aria-pressed=true]{background:color-mix(in srgb,var(--pb-glow) 18%,var(--bg-panel));color:var(--text-primary);border-color:color-mix(in srgb,var(--pb-glow) 60%,#2a2131)}
