@@ -220,11 +220,20 @@ html:has(#adsense-loader[data-failed=true]) :is(.ng-adsense-slot,.ng-adsense-pai
 .ng-footer{padding-inline:24px;box-sizing:border-box}
 .ng-content--atlas~.ng-footer,.ng-family-map .ng-footer{max-width:none;width:100%}
 .ng-family-editorial .ng-footer{max-width:1600px}
+/* AdSense can insert a wrapper before the brand or between directory columns. */
+.ng-footer :is(.d2-colophon-top,.d2-colophon-dir)>.google-auto-placed{
+  order:1;
+  grid-column:1/-1;
+  min-width:0;
+}
 @media(min-width:1800px){.ng-footer{padding-inline:32px}}
 @media(max-width:1250px){.ng-footer{padding-inline:18px}}
 @media(max-width:1050px){.ng-footer{padding-inline:15px}}
 @media(max-width:899px){.ng-footer{padding-inline:18px}}
-@media(max-width:599px){.ng-footer{padding-inline:12px}}
+@media(max-width:599px){
+  .ng-footer{padding-inline:12px}
+  .ng-footer .d2-colophon-top{display:grid;row-gap:0}
+}
 /* Featured destinations (관제 홈·코스피 맵·코스닥 맵·S&P 500 맵·나스닥 100 맵): glowing gold label. */
 a.ng-gold-link>span:first-child{font-weight:700;color:#ffd76a;background-image:linear-gradient(100deg,#f6c445 0%,#fff1b8 22%,#ffcf4d 45%,#e9a923 70%,#fff1b8 100%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 4px #ffc23d8c) drop-shadow(0 0 10px #ff9f1a40);animation:ng-gold-sheen 5.5s linear infinite}
 a.ng-gold-link{border-left-color:#e9b54a66}
