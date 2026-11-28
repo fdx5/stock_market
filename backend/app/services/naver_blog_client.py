@@ -391,7 +391,7 @@ def publish(
             )
 
             if dry_run:
-                fresh = context.cookies()
+                fresh = None if weekly_profile else context.cookies()
                 _dump_debug(page, f"dryrun_{meta.get('market', 'x')}")
                 return {
                     "log_no": None,
@@ -449,7 +449,7 @@ def publish(
                          f"body={captured['response_body']})"
                 )
                 raise NaverPublishError(f"publish not confirmed - {detail} (debug: {shot})")
-            fresh = context.cookies()
+            fresh = None if weekly_profile else context.cookies()
             return {
                 "log_no": log_no,
                 "post_url": f"https://blog.naver.com/{blog_id}/{log_no}",

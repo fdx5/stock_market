@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 
 def profile_dir() -> Path:
@@ -26,9 +26,12 @@ def open_login(blog_id: str) -> bool:
         context = launch(playwright.chromium, headless=False)
         try:
             page = context.pages[0] if context.pages else context.new_page()
-            page.goto(f"https://blog.naver.com/PostWriteForm.naver?blogId={blog_id}",
+            editor = f"https://blog.naver.com/PostWriteForm.naver?blogId={blog_id}"
+            login = "https://nid.naver.com/nidlogin.login?" + urlencode({"url": editor})
+            page.goto(login,
                       wait_until="domcontentloaded", timeout=30_000)
             page.bring_to_front()
+            print("네이버 주간 발행기 전용 로그인 창을 열었습니다.", flush=True)
             deadline = time.monotonic() + 600
             while not page.is_closed() and time.monotonic() < deadline:
                 try:
