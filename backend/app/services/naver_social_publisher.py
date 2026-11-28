@@ -20,10 +20,13 @@ from __future__ import annotations
 from app.services import browser_guard
 
 import datetime as dt
+from email.utils import parsedate_to_datetime
 import logging
 import os
 import random
 import time
+from urllib.parse import urlsplit
+from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
 from app.services import (
@@ -65,6 +68,30 @@ def applies(day: dt.date, edition: str) -> bool:
 def window(day: dt.date, edition: str) -> tuple[dt.datetime, dt.datetime]:
     start = slot_time(day, edition)
     return start, start + dt.timedelta(hours=content.EDITIONS[edition][1])
+
+
+def public_weekly_post(day: dt.date) -> dict | None:
+    """Find a recap already published in the official editor, including manual releases."""
+    blog = naver_blog_client.BLOG_ID
+    period = f"{day - dt.timedelta(days=5):%m/%d}~{day - dt.timedelta(days=1):%m/%d}"
+    try:
+        feed = ElementTree.fromstring(content._get(f"https://rss.blog.naver.com/{blog}.xml", raw=True, timeout=5))
+    except (OSError, content.NotReady, ElementTree.ParseError):
+        return None
+    for item in feed.findall("./channel/item"):
+        title = item.findtext("title", "")
+        if not all(part in title for part in (period, "주간", "코스피·코스닥·나스닥")):
+            continue
+        try:
+            published = parsedate_to_datetime(item.findtext("pubDate", "")).astimezone(KST).date()
+            url = urlsplit(item.findtext("link", ""))
+        except (TypeError, ValueError):
+            continue
+        path = url.path.split("/")
+        if (day <= published <= day + dt.timedelta(days=1) and url.netloc == "blog.naver.com"
+                and len(path) == 3 and path[1] == blog and path[2].isascii() and path[2].isdigit()):
+            return {"title": title, "url": f"https://blog.naver.com/{blog}/{path[2]}"}
+    return None
 
 
 def delivery_deadline(day: dt.date, edition: str) -> dt.datetime:
@@ -174,6 +201,11 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
     for day, edition in targets:
         k = store.key(day, edition)
         if not dry_run:
+            if edition == "weekly_market":
+                public_post = public_weekly_post(day)
+                if public_post:
+                    result["verified"].append({"key": k, **public_post})
+                    continue
             store.enqueue(day.isoformat(), edition, content.EDITIONS[edition][2])
             row = store.get(k)
             if not row or row["status"] in ("published", "skipped"):

@@ -233,6 +233,8 @@ def _naver_social(day: dt.date, now: dt.datetime) -> list[dict]:
         name = f"블로그 · {label}"
         jid = f"nb:{edition}"
         if not pub.applies(day, edition):
+            if edition == "weekly_market":
+                continue
             jobs.append({"id": jid, "group": "blog", "at": hhmm, "name": name, "status": "off", "detail": "휴장일이라 쉽니다"})
             continue
         start, end = pub.window(day, edition)
@@ -243,6 +245,12 @@ def _naver_social(day: dt.date, now: dt.datetime) -> list[dict]:
         row = rows.get(f"{day}:{edition}") or {}
         st = row.get("status")
         cat = content.CATEGORY_NAMES.get(category, "")
+        if edition == "weekly_market" and st != "published":
+            public_post = pub.public_weekly_post(day)
+            if public_post:
+                jobs.append({"id": jid, "group": "blog", "at": hhmm, "name": name, "status": "ok",
+                             "detail": f"공개 RSS에서 게시 확인 · {cat}", "link": public_post["url"]})
+                continue
         if st == "published":
             seen = row.get("category_seen")
             status = "ok"
