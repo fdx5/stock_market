@@ -344,6 +344,7 @@
 
 .sk-discussion-ticker {
   --ticker-accent: var(--accent-neon, #bd8cff);
+  --ticker-post-gap: clamp(16px, 2.2vw, 30px);
   display: flex;
   min-width: 0;
   min-height: 44px;
@@ -385,6 +386,10 @@
   flex: none;
   width: max-content;
 }
+.sk-discussion-ticker-sequence {
+  column-gap: var(--ticker-post-gap);
+  padding-inline: calc(var(--ticker-post-gap) / 2);
+}
 .sk-discussion-ticker-track[data-scroll] {
   animation: d2-tape 60s linear infinite;
 }
@@ -395,11 +400,10 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   max-width: min(26rem, 75vw);
-  padding: 0 14px;
+  padding: 0;
   border: 0;
-  border-inline-end: 1px solid var(--line-soft);
   background: none;
   color: var(--text-primary);
   font: 650 13px var(--f-sans);
