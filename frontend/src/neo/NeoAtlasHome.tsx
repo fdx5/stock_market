@@ -1,4 +1,4 @@
-import AdZone, { MultiplexAd, SHELL_RAIL_MEDIA, useMediaQuery } from "./AdZone";
+import AdZone, { MultiplexAd, SHELL_RAIL_MEDIA } from "./AdZone";
 import MoversEntry from "./MoversEntry";
 import { useState } from "react";
 import { TodayEntry } from "../growth/MarketPulsePage";
@@ -31,7 +31,6 @@ function quoteTime(value?: string | number | null) {
 const price = (value?: number) => value != null && Number.isFinite(value) && value > 0 ? value.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 }) : "—";
 
 const MARKET_KEY = "kospimap_home_market";
-const BOTTOM_AD_MEDIA = "(max-width: 767px), (min-width: 900px) and (max-width: 1679px)";
 function savedMarket(): AtlasMarket {
   try { const value = window.localStorage.getItem(MARKET_KEY); if (value === "kospi" || value === "kosdaq" || value === "nasdaq100") return value; } catch { /* storage unavailable */ }
   return "kospi";
@@ -44,7 +43,6 @@ export default function NeoAtlasHome() {
   const L = (ko: string, en: string) => lang === "ko" ? ko : en;
   const indices = useMarketIndices();
   const ticker = useMarketTicker();
-  const showBottomAd = useMediaQuery(BOTTOM_AD_MEDIA);
   const tick = (symbol: string) => ticker.find(item => item.symbol === symbol);
   const assets = MARKET_ASSETS;
   // The scanner's index choice also leads the market maps and is remembered for the next visit.
@@ -69,7 +67,6 @@ export default function NeoAtlasHome() {
       kosdaq: { price: indices.kosdaq?.close, change: indices.kosdaq?.change_pct },
       nasdaq100: { price: tick("^NDX")?.price, change: tickerChangePct(tick("^NDX")) },
     }} lead={market} onLeadChange={chooseMarket} afterNasdaq={<TodayEntry />} />
-    {showBottomAd && <AdZone kind="break-rect" className="ng-home-bottom-ad" lazy />}
     <section className="ng-atlas-destinations" aria-labelledby="ng-explore-h"><header><span className="ng-kicker">CHOOSE YOUR PERSPECTIVE</span><h2 id="ng-explore-h">{L("다른 시선으로 시장 읽기", "Change your perspective")}</h2></header><div>{[
       ["/map", "map", "MAP", L("면적으로 읽는 증시", "The market, in area"), L("시가총액과 등락을 한 장의 지도로", "Capitalization and returns on one map")],
       ["/etf", "layers", "ETF", L("종목 너머의 투자", "Invest beyond a stock"), L("국내·미국 ETF를 비교하고 탐색", "Explore and compare Korean & US ETFs")],

@@ -232,6 +232,6 @@ export function InArticleAd({ className = "" }: { className?: string }) {
 }
 
 /** Multiplex (related-content grid) units. */
-export function MultiplexAd({ slot, media, className = "" }: { slot: "5479707639" | "5096564255"; media?: string; className?: string }) {
+export function MultiplexAd({ slot, media, className = "" }: { slot: "5096564255"; media?: string; className?: string }) {
   return <FluidAd slot={slot} format="autorelaxed" media={media} className={`ad-multiplex ${className}`} dummy={`multiplex · ${slot}`} />;
 }

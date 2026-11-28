@@ -28,7 +28,7 @@ html[data-tone="light"] .ad-zone{background:#f6f4f8}
 
 /* phones: ads sit in the gap between two sections, centred, never wider than the screen */
 @media(max-width:767px){
-  .ad-zone--feed-banner,.ng-home-bottom-ad.ad-zone{margin:18px auto 0;box-sizing:border-box;width:calc(var(--ad-w) + 18px);max-width:100%}
+  .ad-zone--feed-banner{margin:18px auto 0;box-sizing:border-box;width:calc(var(--ad-w) + 18px);max-width:100%}
 }
 
 /* every content page, wide screens: the shell's sticky ad column */
@@ -36,7 +36,6 @@ html[data-tone="light"] .ad-zone{background:#f6f4f8}
   .ng-content.ng-content--ad-rail{display:grid;grid-template-columns:minmax(0,1fr) 318px;column-gap:24px;align-items:start}
   /* width:100% - a page root centred with margin:auto (and size-contained, like 전세계 증시) would otherwise shrink to nothing in the grid */
   .ng-content--ad-rail>:not(.ng-ad-rail){grid-column:1;min-width:0;width:100%;box-sizing:border-box}
-  .ng-content--ad-rail>.ng-multiplex-band{max-width:1200px;justify-self:center}
   .ng-content--ad-rail>.ng-ad-rail{grid-column:2;grid-row:1/span 6;align-self:stretch;padding-top:14px}
   .ng-ad-rail>.ad-zone{position:sticky;top:calc(var(--ng-header,68px) + var(--ng-pulse,50px) + 16px)}
   .ng-content--ad-rail:has(>.ng-ad-rail[data-state="empty"]){grid-template-columns:minmax(0,1fr) 0;column-gap:0}
@@ -44,9 +43,6 @@ html[data-tone="light"] .ad-zone{background:#f6f4f8}
 
 /* a break between two sections: one strip, centred, the page's own spacing around it */
 .ad-zone--break,.ad-zone--break-rect{margin:16px auto;box-sizing:border-box;width:calc(var(--ad-w) + 18px);max-width:100%}
-@media(min-width:768px){
-  .ng-home-bottom-ad.ad-zone{width:100%;margin:18px auto 0}
-}
 .pb-banner>.ad-zone{margin:0 auto}
 .ad-zone--tower{margin:14px auto 0;box-sizing:border-box;width:calc(var(--ad-w) + 18px);max-width:100%}
 
@@ -58,16 +54,11 @@ html[data-tone="light"] .ad-zone{background:#f6f4f8}
 .hi-stories>.ad-inarticle{margin:4px 0;padding:14px 16px;border:1px solid var(--line-soft,#ffffff1a);border-radius:10px;background:#0c080f}
 html[data-tone="light"] .hi-stories>.ad-inarticle{background:#f6f4f8}
 
-/* multiplex: above the footer on every page (desktop), and under the home rail's banner */
+/* multiplex: under the home rail's banner */
 .ad-multiplex{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line-soft,#ffffff1a);border-radius:8px;background:#0c080f}
 .ad-multiplex[data-state="empty"]{display:none}
 .ad-multiplex .adsbygoogle{min-height:1px}
 html[data-tone="light"] .ad-multiplex{background:#f6f4f8}
-/* in the content column (beside the rail, never under it), centred, tiles kept at a readable size */
-.ng-multiplex-band{width:100%;max-width:1200px;margin:36px auto 8px;justify-self:center;box-sizing:border-box}
-.ng-multiplex-band:not(:has(.ad-multiplex:not([data-state="empty"]))){display:none}
-.ng-multiplex-band .ad-fluid-dummy{height:280px}
 .ng-home-rail>.ad-multiplex{margin-top:14px}
 .ng-home-rail>.ad-multiplex .ad-fluid-dummy{height:900px}
-.hi-stories>.hi-multiplex{margin-top:18px}
 .ad-multiplex>.ad-zone-label{padding-bottom:2px}

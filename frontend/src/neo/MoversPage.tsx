@@ -4,7 +4,7 @@ import StockLogo from "../components/StockLogo";
 import { Link } from "../router";
 import { reportHotIssue } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
-import { InArticleAd, MultiplexAd } from "./AdZone";
+import { InArticleAd } from "./AdZone";
 import { NeoEmptyState, NeoSkeleton } from "./NeoComponents";
 import "./movers.css";
 
@@ -210,7 +210,6 @@ export default function MoversPage({ market = "kr", archiveDay, archiveTime }: {
         <Card s={s} us={us} rank={s.direction === "up" ? i + 1 : i - ups.length + 1} />
         {(i === 3 || i === 9) && i < ups.length + downs.length - 1 && <InArticleAd className="mv-ad" />}
       </Fragment>)}
-      <MultiplexAd slot="5479707639" className="mv-multiplex" />
     </section>
 
     <nav className="mv-more" aria-label="더 보기">
