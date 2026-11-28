@@ -520,6 +520,7 @@ def run_slot(slot: dt.datetime, trigger: str, market: str = "kr") -> str:
             return "failed"
         created = store.save_edition(k, payload, payload["model"], payload["generated_at"])
         forget(slot, market)
+        history_stale()
         store.log_run(k, _now().isoformat(timespec="seconds"), "published" if created else "exists", trigger,
                       json.dumps({"stocks": len(payload["stocks"]), "model": payload["model"]}))
         _published.add(key(slot, market))
@@ -625,6 +626,100 @@ def for_stock(code: str, now: dt.datetime | None = None) -> dict | None:
     return None
 
 
+# ------------------------------------------------------------------ per-stock history
+# Every edition is written once and never changes (a revision is a new row), so each row
+# is read and reduced to small per-stock entries only once per process. A refresh lists
+# the keys (a cheap query) and fetches only rows it has not seen.
+HISTORY_SLOTS = 360          # per market: ~120 sessions of three editions
+HISTORY_REFRESH = 600        # seconds between looks for newly published rows
+HISTORY_RETRY = 60           # after a failed refresh
+_ENTRY_FIELDS = ("name", "change_pct", "reason", "theme", "limit", "direction")
+_history_rows: dict[str, list[dict] | None] = {}   # store key -> entries, None = unreadable
+_history_index: dict[str, list[dict]] = {}          # stock code -> entries, newest first
+_history_slots: list[str] = []                      # base keys with a readable edition, newest first
+_history_due = 0.0
+_history_lock = threading.Lock()
+
+
+def _row_entries(k: str, payload: dict | None) -> list[dict] | None:
+    if not payload:
+        return None
+    market = "us" if k.startswith("us:") else "kr"
+    data = {**payload, "market": payload.get("market") or market}
+    try:
+        path = edition_path(data)
+        stocks = list(data.get("stocks") or [])
+    except (KeyError, AttributeError, TypeError):
+        return None
+    slot = str(data.get("slot") or k.removesuffix(REVISION).removeprefix("us:"))
+    out = []
+    for s in stocks:
+        code = str((s or {}).get("code") or "").strip().upper()
+        if code:
+            out.append({"code": code, "market": market, "slot": slot, "edition": data["edition"],
+                        "slot_label": data["slot_label"], "slot_name": data.get("slot_name") or "",
+                        "path": path, **{f: s.get(f) for f in _ENTRY_FIELDS}})
+    return out
+
+
+def _refresh_history() -> None:
+    global _history_due, _history_index, _history_slots
+    with _history_lock:
+        if time.monotonic() < _history_due:
+            return
+        try:
+            from app.services import movers_store
+            keys = [k for market in MARKETS for k in movers_store.published_keys(market, HISTORY_SLOTS)]
+            missing = [k for k in keys if k not in _history_rows]
+            for start in range(0, len(missing), 40):
+                chunk = missing[start:start + 40]
+                found = movers_store.get_editions(chunk)
+                for k in chunk:
+                    _history_rows[k] = _row_entries(k, found.get(k))
+        except Exception as exc:
+            log.warning("movers history refresh failed: %s", exc)
+            _history_due = time.monotonic() + HISTORY_RETRY
+            return
+        # As edition(): a slot's readable revision stands in for its original.
+        chosen: dict[str, list[dict]] = {}
+        for k in keys:
+            entries = _history_rows.get(k)
+            base = k.removesuffix(REVISION)
+            if entries is not None and (k.endswith(REVISION) or base not in chosen):
+                chosen[base] = entries
+        index: dict[str, list[dict]] = {}
+        for base in chosen:
+            for entry in chosen[base]:
+                index.setdefault(entry["code"], []).append(entry)
+        for entries in index.values():
+            entries.sort(key=lambda e: e["slot"], reverse=True)
+        _history_index, _history_slots = index, [k for k in keys if k in chosen]
+        _history_due = time.monotonic() + HISTORY_REFRESH
+
+
+def _ensure_history(wait: bool) -> None:
+    if time.monotonic() < _history_due:
+        return
+    if wait:
+        _refresh_history()
+    elif not _history_lock.locked():
+        # A page render never waits on the store: it uses what is indexed so far.
+        threading.Thread(target=_refresh_history, name="movers-history", daemon=True).start()
+
+
+def history_stale() -> None:
+    """Call after a new edition is stored so the next read picks it up."""
+    global _history_due
+    _history_due = 0.0
+
+
+def history_for_stock(code: str, limit: int | None = 5, wait: bool = False) -> list[dict]:
+    """This stock's entries across stored editions, newest first ([] until indexed)."""
+    _ensure_history(wait)
+    entries = _history_index.get(str(code).strip().upper(), [])
+    return entries[:limit] if limit else list(entries)
+
+
 # ------------------------------------------------------------------ SEO
 PAGE = ("오늘 급등주·급락주 이유 총정리 — 상한가·특징주 실시간 | KOSPIMAP",
         "코스피·코스닥 급등주와 급락주가 왜 움직였는지 뉴스 근거로 쉽게 정리합니다. 평일 09:20·12:30·16:00 업데이트, 상한가·하한가·테마 흐름과 20일 차트를 한 번에 확인하세요.")
@@ -657,10 +752,12 @@ def edition_metadata(data: dict) -> tuple[str, str]:
 
 
 def sitemap_editions(now: dt.datetime | None = None) -> list[tuple[str, str]]:
-    from app.services import movers_store
+    """Archive URLs that open. Only editions whose stored payload loads are listed: a
+    listed URL that answers 404 tells crawlers the sitemap cannot be trusted."""
     now = (now or _now()).astimezone(KST)
+    _ensure_history(wait=True)
     out = []
-    for k in movers_store.published_slots("~", 400):
+    for k in _history_slots:
         market = "us" if k.startswith("us:") else "kr"
         iso = k[3:] if market == "us" else k
         slot = parse_slot(iso[:10], iso[11:16].replace(":", ""), market)

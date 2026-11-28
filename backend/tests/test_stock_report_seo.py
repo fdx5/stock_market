@@ -24,7 +24,9 @@ def renderer():
                STOCK_LANDING_ROUTE=re.compile(r'/stock/(\d{6})/(investor|outlook|news)'), STOCK_ROUTE=re.compile(r'/stock/([A-Za-z0-9.-]{1,16})'), INVESTOR_ROUTE=re.compile(r'/investor/([A-Za-z0-9.-]{1,16})'), KRX_CODE=re.compile(r'\d[0-9A-Z]{5}'),
                _stock_entry=stock_entry, _stock_identity=lambda path: stock_entry(path)[:2], _market_brief=lambda _path:(None,'',''), _investor_identity=lambda _path:('',''), _detail_neighbours=lambda *_args:[], _kr_etf_names=lambda:{'069500':'KODEX 200'}, kr_universe=lambda:[{'code':'005930','market':'KOSPI'}], cache=FixtureCache(),
                investor_fetcher=SimpleNamespace(cached_investor_trend=lambda code, _size: TREND if code == '005930' else []))
-    funcs = [node for node in source.body if isinstance(node, ast.FunctionDef) and node.name in {'_replace_meta','render_spa_shell','is_unknown_kr_code','legacy_redirect','is_public_spa_path','_brief_description','_investor_digest','_kr_stock_numbers','_kr_rank','_moving_average','_rsi','_amount'}]
+    funcs = [node for node in source.body if isinstance(node, ast.FunctionDef) and node.name in {'_replace_meta','render_spa_shell','is_unknown_kr_code','legacy_redirect','is_public_spa_path','_brief_description','_investor_digest','_kr_stock_numbers','_kr_rank','_moving_average','_rsi','_amount','_mover_history','_sector_section'}]
+    env['movers'] = SimpleNamespace(history_for_stock=lambda *_a, **_k: [], for_stock=lambda _code: None)
+    env['_kr_sector_peers'] = lambda _code: ('', [])
     env['MARKET_BRIEF_ROUTE'] = re.compile(r"/market-brief/(\d{4}-\d{2}-\d{2})/([a-z0-9]+)", re.I)
     env['_brief_target'] = lambda slug: {'005930': 'samsung'}.get(slug.lower(), slug.lower())
     env['seo_content'] = SimpleNamespace(security_snapshot=lambda *_: '', market_directory=lambda *_: '',
@@ -219,3 +221,28 @@ def test_catalog_links_to_the_same_tickers_as_the_sitemap(renderer):
     result = renderer["render_spa_shell"](template, "/stocks/catalog/kospi/2", {}, stock_catalog=page)
     assert 'rel="canonical" href="https://kospimap.com/stocks/catalog/kospi/2"' in result
     assert 'href="/stock/000121"' in result and 'id="stock-catalog-data"' in result
+
+
+MOVES = [{'code': '005930', 'edition': '2026-11-27', 'slot_label': '16:00', 'path': '/movers/2026-11-27/1600',
+          'change_pct': 4.73, 'direction': 'up', 'limit': '', 'reason': '휴머노이드 <공개> 기대'},
+         {'code': '005930', 'edition': '2026-11-26', 'slot_label': '09:20', 'path': '/movers/2026-11-26/0920',
+          'change_pct': -3.1, 'direction': 'down', 'limit': '', 'reason': '차익 실현'}]
+
+
+def test_kr_stock_page_lists_past_move_reasons_and_same_sector_names(renderer):
+    renderer['movers'] = SimpleNamespace(history_for_stock=lambda *_a, **_k: MOVES, for_stock=lambda _code: None)
+    renderer['_kr_sector_peers'] = lambda _code: ('반도체/전자', [('000660', 'SK하이닉스'), ('009150', '삼성전기')])
+    template = '<html><head><title>Home</title></head><body><div id="root"></div></body></html>'
+    detail = renderer['render_spa_shell'](template, '/stock/005930', {})
+    assert '<h2>삼성전자 급등·급락 이유</h2>' in detail
+    assert 'href="/movers/2026-11-27/1600">2026-11-27 16:00 급등 +4.73%' in detail and '급락 -3.10%' in detail
+    assert '휴머노이드 &lt;공개&gt; 기대' in detail and '2거래일 급등·급락 이유 정리에 포함됐습니다(급등 1일, 급락 1일)' in detail
+    assert '같은 업종(반도체/전자) 종목' in detail and 'href="/stock/000660">SK하이닉스 주가' in detail
+    outlook = renderer['render_spa_shell'](template, '/stock/005930/outlook', {})
+    assert '급등·급락 이유' in outlook and '같은 업종' not in outlook
+
+
+def test_stock_page_falls_back_to_the_latest_move_until_the_history_is_indexed(renderer):
+    renderer['movers'] = SimpleNamespace(history_for_stock=lambda *_a, **_k: [], for_stock=lambda _code: MOVES[0])
+    detail = renderer['render_spa_shell']('<html><head><title>Home</title></head><body><div id="root"></div></body></html>', '/stock/005930', {})
+    assert '2026-11-27 16:00 급등 +4.73%' in detail and '포함됐습니다' not in detail

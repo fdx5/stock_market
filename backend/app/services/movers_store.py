@@ -115,6 +115,34 @@ def published_slots(through: str, limit: int) -> list[str]:
     return [row[0] for row in rows]
 
 
+def published_keys(market: str, limit: int) -> list[str]:
+    """Stored keys for one market, newest first (revision rows "<key>~r1" included).
+
+    published_slots("~", n) orders every "us:" key ahead of all KR keys, so once the
+    US side holds n rows the KR editions drop out of it; this asks per market instead."""
+    where = "slot >= 'us:'" if market == "us" else "slot < 'us:'"
+    rows = _with_connection(lambda conn: conn.execute(
+        f"SELECT slot FROM movers_editions WHERE {where} ORDER BY slot DESC LIMIT ?", (limit,)).fetchall())
+    return [row[0] for row in rows]
+
+
+def get_editions(keys: list[str]) -> dict[str, dict | None]:
+    """Payloads for these keys in one read; a row whose payload does not parse maps to None."""
+    if not keys:
+        return {}
+    marks = ", ".join("?" for _ in keys)
+    rows = _with_connection(lambda conn: conn.execute(
+        f"SELECT slot, payload FROM movers_editions WHERE slot IN ({marks})", tuple(keys)).fetchall())
+    out: dict[str, dict | None] = {}
+    for slot, payload in rows:
+        try:
+            value = json.loads(payload)
+        except (TypeError, ValueError):
+            value = None
+        out[slot] = value if isinstance(value, dict) else None
+    return out
+
+
 def log_run(slot: str, at: str, event: str, trigger: str = "", detail: str = "") -> None:
     def run(conn):
         conn.execute("INSERT INTO movers_runs (slot, at, event, trigger, detail) VALUES (?, ?, ?, ?, ?)",

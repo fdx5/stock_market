@@ -401,6 +401,107 @@ def _amount(value: float) -> str:
     return f"{value:+,.1f}억원"
 
 
+def _mover_history(code: str, name: str, market: str = "kr") -> str:
+    """Why this stock jumped or fell on the days it made the 급등·급락 editions.
+
+    Each stored edition already explains the move with its news; this lists the stock's
+    own lines from them (newest five) and links each to its dated edition, so a search for
+    "<회사> 급등 이유" lands on a page that answers it. Rendering never waits on the store:
+    until the index is built only the latest edition (as before) is shown."""
+    try:
+        entries = movers.history_for_stock(code, limit=None)
+    except Exception:
+        entries = []
+    if not entries:
+        try:
+            latest = movers.for_stock(code)
+        except Exception:
+            latest = None
+        entries = [latest] if latest else []
+    if not entries:
+        return ""
+    # The 12:30 and 16:00 editions of one day usually explain the same move twice;
+    # keep the day's latest (entries are newest first).
+    by_day: dict[str, dict] = {}
+    for entry in entries:
+        by_day.setdefault(str(entry.get("edition")), entry)
+    entries = list(by_day.values())
+    who = html.escape(name)
+    items = []
+    for entry in entries[:5]:
+        verb = "급등" if entry.get("direction") == "up" else "급락"
+        pct = entry.get("change_pct")
+        figure = f" {float(pct):+.2f}%" if isinstance(pct, (int, float)) else ""
+        tag = f" · {html.escape(str(entry['limit']))}" if entry.get("limit") else ""
+        items.append(
+            f'<li><a href="{html.escape(str(entry["path"]))}">{html.escape(str(entry["edition"]))} '
+            f'{html.escape(str(entry["slot_label"]))} {verb}{figure}</a>{tag}'
+            f'<p style="margin:4px 0 12px;line-height:1.7">{html.escape(str(entry.get("reason") or ""))}</p></li>'
+        )
+    summary = ""
+    if len(entries) > 1:
+        ups = sum(1 for entry in entries if entry.get("direction") == "up")
+        summary = (
+            f'<p style="max-width:760px;line-height:1.8">{who}은(는) {html.escape(str(entries[-1]["edition"]))} 이후 '
+            f'{len(entries)}거래일 급등·급락 이유 정리에 포함됐습니다(급등 {ups}일, 급락 {len(entries) - ups}일).</p>'
+        )
+    hub = "/movers/us" if market == "us" else "/movers"
+    return (
+        f'<section><h2>{who} 급등·급락 이유</h2>{summary}'
+        f'<ol style="max-width:760px">{"".join(items)}</ol>'
+        f'<p><a href="{hub}">오늘 급등·급락 종목 전체 보기</a></p></section>'
+    )
+
+
+def _kr_sector_peers(code: str) -> tuple[str, list[tuple[str, str]]]:
+    """(sector, up to eight same-sector names by market value) for a KR stock.
+
+    Uses the market map's own sector rules over the cached KRX board. The industry
+    table is taken from the cache (or the bundled snapshot) and never fetched here, so
+    a page render does not wait on KRX."""
+
+    def build() -> dict:
+        from app.services import market_map
+
+        industries = cache.peek("krx_industry_map", max_stale_seconds=30 * 86400) or market_map._bundled_industry_map()
+        sector_of: dict[str, str] = {}
+        rows: dict[str, list[tuple[str, str]]] = {}
+        for item in kr_universe():
+            item_code = str(item.get("code", "")).strip().upper()
+            if not KRX_CODE.fullmatch(item_code):
+                continue
+            sector = market_map._resolve_sector(item_code, industries)
+            sector_of[item_code] = sector
+            rows.setdefault(sector, []).append((item_code, str(item.get("name", ""))))
+        if not sector_of:
+            raise RuntimeError("KR universe unavailable")
+        return {"of": sector_of, "rows": rows}
+
+    try:
+        table = cache.get_or_set("seo_kr_sector_peers", 6 * 3600, build)
+    except Exception:
+        return "", []
+    sector = table["of"].get(code, "")
+    if not sector or sector == "기타":
+        return "", []
+    # Other share classes of the same company (삼성전자우 for 삼성전자) share the first
+    # five code digits; they are not a different company in the sector.
+    return sector, [row for row in table["rows"].get(sector, []) if row[0][:5] != code[:5]][:8]
+
+
+def _sector_section(code: str, name: str) -> str:
+    sector, peers = _kr_sector_peers(code)
+    if not peers:
+        return ""
+    links = "".join(f'<a href="/stock/{other}">{html.escape(other_name)} 주가</a>' for other, other_name in peers)
+    return (
+        f'<section><h2>같은 업종({html.escape(sector)}) 종목</h2>'
+        f'<p style="max-width:760px;line-height:1.8">{html.escape(name)}은(는) {html.escape(sector)} 업종으로 분류됩니다. '
+        f'같은 업종의 시가총액 상위 종목은 {", ".join(html.escape(n) for _, n in peers[:3])} 등입니다.</p>'
+        f'<nav aria-label="같은 업종 종목" style="display:flex;flex-wrap:wrap;gap:12px">{links}</nav></section>'
+    )
+
+
 def is_unknown_kr_code(path: str) -> bool:
     """True for a six-digit code that is not listed on KOSPI or KOSDAQ.
 
@@ -1058,7 +1159,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
         hub = {"kr_etf": ("/etf/kr", "국내 ETF 순위"), "us_etf": ("/etf/us", "미국 ETF 순위"), "us_stock": ("/global", "해외 증시")}[stock_kind]
         security_snapshot = seo_content.security_snapshot(stock_code, stock_name, stock_kind)
         report_content = (
-            f'{intro}{security_snapshot}'
+            f'{intro}{_mover_history(stock_code, stock_name, "us") if stock_kind == "us_stock" else ""}{security_snapshot}'
             '<nav aria-label="종목 관련 정보" style="display:flex;flex-wrap:wrap;gap:12px">'
             f'<a rel="nofollow" href="/discussion-explorer?code={html.escape(stock_code)}&amp;name={html.escape(stock_name, quote=True)}'
             f'&amp;market={"US" if is_us else "KR"}&amp;asset={asset}">{html.escape(stock_name)} 종목토론</a>'
@@ -1105,18 +1206,10 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
             f'<a href="/stock/{other}">{html.escape(other_name)} 주가</a>'
             for other, other_name in _detail_neighbours(stock_code, "kr_stock")
         )
-        try:
-            mover = movers.for_stock(stock_code)
-        except Exception:
-            mover = None
-        mover_html = (
-            f'<section><h2>{html.escape(stock_name)} {"급등" if mover["direction"] == "up" else "급락"} 이유 '
-            f'({mover["edition"]} {mover["slot_label"]} 기준 {mover["change_pct"]:+.2f}%)</h2>'
-            f'<p>{html.escape(mover.get("reason") or "")}</p><p><a href="{mover["path"]}">오늘 급등·급락 종목 전체 보기</a></p></section>'
-        ) if mover else ""
         report_content = (
-            f'{intro}{mover_html}'
+            f'{intro}{_mover_history(stock_code, stock_name)}'
             + _kr_stock_numbers(stock_code, stock_name, stock_landing_kind, kr_records, kr_digest)
+            + ("" if stock_landing_kind else _sector_section(stock_code, stock_name))
             + '<nav aria-label="종목 관련 분석" style="display:flex;flex-wrap:wrap;gap:12px">'
             f'{siblings}'
             f'<a rel="nofollow" href="/discussion-explorer?code={stock_code}&amp;name={html.escape(stock_name, quote=True)}">{html.escape(stock_name)} 종목토론</a>'
@@ -1384,23 +1477,46 @@ def build_stocks_sitemap(kr_stocks: list[dict]) -> str:
     /investor pages stay reachable by link but are not offered for indexing, so the
     crawl budget goes to the page that answers "<회사> 주가"."""
     etfs = _kr_etf_names()
+    lastmod = _last_session("kr")
     urls: list[tuple[str, str, str, str]] = []
     for rank, code in enumerate(c for c in dict.fromkeys(_valid_codes(kr_stocks)) if c not in etfs):
-        urls.append((f"{SITE}/stock/{code}", "0.8" if rank < 300 else "0.6", "daily", ""))
+        urls.append((f"{SITE}/stock/{code}", "0.8" if rank < 300 else "0.6", "daily", lastmod))
     return _urlset(urls)
+
+
+def _last_session(market: str, now: datetime | None = None) -> str:
+    """The latest trading day on or before today in the market's own time zone.
+
+    Quote pages change with every session and only then, so this is the date their
+    content last changed — the one lastmod value crawlers take at face value."""
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+
+    zone = ZoneInfo("America/New_York" if market == "us" else "Asia/Seoul")
+    local = now.astimezone(zone) if now else datetime.now(zone)
+    day = local.date()
+    if (local.hour, local.minute) < ((9, 30) if market == "us" else (9, 0)):
+        day -= timedelta(days=1)  # today's session has not opened yet
+    for _ in range(10):
+        if movers.is_trading_day(day, market):
+            return day.isoformat()
+        day -= timedelta(days=1)
+    return ""
 
 
 def build_etf_sitemap() -> str:
     """Every KRX-listed ETF and the US ETFs the site covers, as /stock/<code>."""
-    urls = [(f"{SITE}/stock/{code}", "0.6", "daily", "") for code in _kr_etf_names()]
-    urls += [(f"{SITE}/stock/{code}", "0.6", "daily", "") for code, (_, kind) in _us_catalog().items() if kind == "us_etf"]
+    kr_day, us_day = _last_session("kr"), _last_session("us")
+    urls = [(f"{SITE}/stock/{code}", "0.6", "daily", kr_day) for code in _kr_etf_names()]
+    urls += [(f"{SITE}/stock/{code}", "0.6", "daily", us_day) for code, (_, kind) in _us_catalog().items() if kind == "us_etf"]
     return _urlset(urls)
 
 
 def build_us_sitemap() -> str:
     """The S&P 500 and NASDAQ 100 (plus SK hynix's ADR), as /stock/<ticker>."""
+    us_day = _last_session("us")
     urls = [
-        (f"{SITE}/stock/{code}", "0.8" if rank < 100 else "0.6", "daily", "")
+        (f"{SITE}/stock/{code}", "0.8" if rank < 100 else "0.6", "daily", us_day)
         for rank, code in enumerate(c for c, (_, kind) in _us_catalog().items() if kind == "us_stock")
     ]
     return _urlset(urls)
