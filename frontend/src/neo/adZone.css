@@ -28,7 +28,7 @@ html[data-tone="light"] .ad-zone{background:#f6f4f8}
 
 /* phones: ads sit in the gap between two sections, centred, never wider than the screen */
 @media(max-width:767px){
-  .ad-zone--feed-banner,.ad-zone--feed-rect{margin:18px auto 0;box-sizing:border-box;width:calc(var(--ad-w) + 18px);max-width:100%}
+  .ad-zone--feed-banner,.ng-home-bottom-ad.ad-zone{margin:18px auto 0;box-sizing:border-box;width:calc(var(--ad-w) + 18px);max-width:100%}
 }
 
 /* every content page, wide screens: the shell's sticky ad column */
@@ -44,6 +44,9 @@ html[data-tone="light"] .ad-zone{background:#f6f4f8}
 
 /* a break between two sections: one strip, centred, the page's own spacing around it */
 .ad-zone--break,.ad-zone--break-rect{margin:16px auto;box-sizing:border-box;width:calc(var(--ad-w) + 18px);max-width:100%}
+@media(min-width:768px){
+  .ng-home-bottom-ad.ad-zone{width:100%;margin:18px auto 0}
+}
 .pb-banner>.ad-zone{margin:0 auto}
 .ad-zone--tower{margin:14px auto 0;box-sizing:border-box;width:calc(var(--ad-w) + 18px);max-width:100%}
 

@@ -15,14 +15,13 @@ import "./adZone.css";
 type AdWindow = Window & { adsbygoogle?: { push(request: object): unknown } };
 type AdState = "pending" | "filled" | "empty";
 type Size = { width: number; height: number };
-export type AdZoneKind = "rail" | "side" | "feed-banner" | "feed-rect" | "break" | "break-rect" | "tower";
+export type AdZoneKind = "rail" | "side" | "feed-banner" | "break" | "break-rect" | "tower";
 
 const CLIENT = "ca-pub-8278980164088928";
 const SLOT: Record<AdZoneKind, string> = {
   rail: "4327083118",
   side: "9025269231",
   "feed-banner": "9440754514",
-  "feed-rect": "4040463452",
   break: "9440754514",
   "break-rect": "4040463452",
   tower: "4327083118",
@@ -31,7 +30,6 @@ const SIZES: Record<AdZoneKind, Size[]> = {
   rail: [{ width: 300, height: 600 }, { width: 300, height: 250 }],
   side: [{ width: 300, height: 250 }],
   "feed-banner": [{ width: 320, height: 100 }, { width: 300, height: 50 }],
-  "feed-rect": [{ width: 300, height: 250 }, { width: 250, height: 250 }],
   // A break between two sections: as wide as the column allows, never taller than a strip.
   break: [{ width: 970, height: 90 }, { width: 728, height: 90 }, { width: 468, height: 60 }, { width: 320, height: 100 }, { width: 300, height: 50 }, { width: 234, height: 60 }],
   // The same, but a phone gets a rectangle (for a break inside a long list).
@@ -43,7 +41,6 @@ export const AD_MEDIA: Record<AdZoneKind, string> = {
   rail: "(min-width: 1680px)",
   side: "(min-width: 768px) and (max-width: 1679px)",
   "feed-banner": "(max-width: 767px)",
-  "feed-rect": "(max-width: 767px)",
   break: "all",
   "break-rect": "all",
   tower: "all",

@@ -63,12 +63,12 @@ function NeoPulse() {
 }
 
 /* The multiplex (related-content grid) closes pages people read to the end:
-   the home, the market desks, news, a stock, an index, a price, a brief. Long
+   the market desks, news, a stock, an index, a price, a brief. Long
    tables, lists, maps and tools leave it out - it would sit thousands of
    pixels down, unseen. 오늘의 핫이슈 sets its own at the end of its stories. */
 function multiplexRoute(path: string) {
   if (/^\/(stock\/[A-Za-z0-9.-]{1,16}|prices\/[a-z0-9-]+|market-brief(\/.*)?)\/?$/.test(path)) return adRoute(path);
-  return ["/", "/desk", "/global", "/world-markets", "/news", "/kospi", "/kosdaq", "/nasdaq", "/discussion-explorer"].includes(path);
+  return ["/desk", "/global", "/world-markets", "/news", "/kospi", "/kosdaq", "/nasdaq", "/discussion-explorer"].includes(path);
 }
 
 export default function NeoShell({ path, children }: { path: string; children: ReactNode }) {
@@ -267,7 +267,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
           <div>{MAP_DESTINATIONS.map(([to, ko, en]) => <Link key={to} to={to} aria-current={path === to ? "page" : undefined}>{L(ko, en)}</Link>)}</div>
         </nav>}
         <AdRailContext.Provider value={railActive}>{children}</AdRailContext.Provider>
-        {multiplexRoute(path) && <div className="ng-multiplex-band"><MultiplexAd key={path} slot="5479707639" media={path === "/" ? "(min-width: 900px) and (max-width: 1679px)" : "(min-width: 900px)"} /></div>}
+        {multiplexRoute(path) && <div className="ng-multiplex-band"><MultiplexAd key={path} slot="5479707639" media="(min-width: 900px)" /></div>}
         {rail && <aside className="ng-ad-rail" data-state={railState}><AdZone key={path} kind="rail" onState={setRailState} /></aside>}
       </div>
       {family !== "immersive" && !path.startsWith("/pulse-board") && <div className="ng-footer d2"><Colophon home="/" /><div className="ng-footer-extras"><a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer">VOLTARIS ↗</a><Link to="/support">{L("커피 한 잔 후원", "Support this project")} ↗</Link><button type="button" onClick={() => window.print()}>{L("인쇄 / PDF", "Print / PDF")}</button></div></div>}
