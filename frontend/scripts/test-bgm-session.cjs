@@ -3,6 +3,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const path=require('node:path');
 const ts=require('typescript');
 const frontendRoot=path.resolve(__dirname,'..');
+const leadId='i4H4rSk30IE';
 const compile=path=>ts.transpileModule(fs.readFileSync(require('node:path').join(frontendRoot,path),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
 const playlistCode=compile('src/bgmPlaylist.ts'),storeCode=compile('src/desk2/deskBgmStore.ts');
 function createStore(saved=new Map(),allow=true,sessionSeed=[]){
@@ -13,8 +14,8 @@ function createStore(saved=new Map(),allow=true,sessionSeed=[]){
  const storage={getItem:key=>saved.get(key)??null,setItem:(key,value)=>saved.set(key,value)};
  const sessions=new Map(sessionSeed),sessionStorage={getItem:key=>sessions.get(key)??null,setItem:(key,value)=>sessions.set(key,value)};
  class Element{constructor(){this.style={};this.children=[];}setAttribute(){}appendChild(child){this.children.push(child);return child;}closest(){return null;}}
- const document={hidden:false,visibilityState:'visible',body:new Element(),createElement:()=>new Element(),addEventListener:add,removeEventListener:remove};
- const window={localStorage:storage,sessionStorage,location:{origin:'http://127.0.0.1:5188'},matchMedia:()=>({matches:false}),addEventListener:add,removeEventListener:remove,setTimeout:(fn,delay)=>{timers.set(++next,{fn,delay});return next;},clearTimeout:id=>timers.delete(id),setInterval:()=>++next,clearInterval(){}};
+ const document={hidden:false,visibilityState:'visible',readyState:'complete',body:new Element(),createElement:()=>new Element(),addEventListener:add,removeEventListener:remove};
+ const window={localStorage:storage,sessionStorage,location:{origin:'http://127.0.0.1:5188'},matchMedia:()=>({matches:false}),addEventListener:add,removeEventListener:remove,requestIdleCallback(fn){fn();return ++next;},setTimeout:(fn,delay)=>{timers.set(++next,{fn,delay});return next;},clearTimeout:id=>timers.delete(id),setInterval:()=>++next,clearInterval(){}};
  const playlistContext={exports:{},window};vm.runInNewContext(playlistCode,playlistContext);const playlist=playlistContext.exports;const context={exports:{},window,document,Element,URLSearchParams};
  const options={allow};
  class Player{
@@ -34,9 +35,9 @@ function createStore(saved=new Map(),allow=true,sessionSeed=[]){
 (async()=>{
  const flush=()=>new Promise(resolve=>setImmediate(resolve));
  const first=createStore();assert.equal(first.api.getDeskBgmState().on,true);const leave=first.api.attachDeskBgm();await flush();
- assert.equal(first.apiLoads,1);assert.equal(first.player.id,'bcmTHIqefMk');assert.equal(first.api.getDeskBgmState().playing,true);assert.ok(first.player.frame.src.includes('autoplay=1'));
- first.api.next();assert.notEqual(first.player.id,'bcmTHIqefMk');
- const reentered=createStore(first.saved,true,[...first.sessions]);reentered.api.attachDeskBgm();await flush();assert.equal(reentered.player.id,'bcmTHIqefMk','fresh document must restart the approved opening track');assert.equal(reentered.api.getDeskBgmState().position,1);
+ assert.equal(first.apiLoads,1);assert.equal(first.player.id,leadId);assert.equal(first.api.getDeskBgmState().playing,true);assert.ok(first.player.frame.src.includes('autoplay=1'));
+ first.api.next();assert.notEqual(first.player.id,leadId);
+ const reentered=createStore(first.saved,true,[...first.sessions]);reentered.api.attachDeskBgm();await flush();assert.equal(reentered.player.id,leadId,'fresh document must restart the approved opening track');assert.equal(reentered.api.getDeskBgmState().position,1);
  first.api.setDeskBgmOn(false);assert.equal(first.saved.get(first.api.BGM_ENABLED_KEY),'off');
  const off=createStore(first.saved);off.api.attachDeskBgm();await flush();assert.equal(off.api.getDeskBgmState().on,false);assert.equal(off.apiLoads,0);off.emit('pointerdown');off.api.startDroneBgm();assert.equal(off.plays,0);assert.equal(off.api.getDeskBgmState().on,false,'drone entry must honor saved OFF');
  first.api.setDeskBgmOn(true);assert.equal(first.saved.get(first.api.BGM_ENABLED_KEY),'on');const on=createStore(first.saved);on.api.attachDeskBgm();await flush();assert.equal(on.api.getDeskBgmState().playing,true);
@@ -44,5 +45,5 @@ function createStore(saved=new Map(),allow=true,sessionSeed=[]){
  const blocked=createStore(new Map(),false);blocked.api.attachDeskBgm();await flush();assert.equal(blocked.api.getDeskBgmState().blocked,true);assert.equal(blocked.api.getDeskBgmState().on,true);blocked.options.allow=true;blocked.emit('pointerdown');assert.equal(blocked.api.getDeskBgmState().playing,true);
  blocked.api.toggleDeskBgmPlay();const before=blocked.plays;blocked.emit('pointerdown');assert.equal(blocked.plays,before,'ordinary interaction must not cancel a deliberate pause');
  blocked.api.setDeskBgmOn(false);blocked.emit('keydown');assert.equal(blocked.plays,before,'saved OFF must not unlock');
- console.log(JSON.stringify({fresh_document_always_restarts_opening:true,default_autoplay:true,opening_track:'bcmTHIqefMk',saved_off_survives_reentry:true,saved_on_survives_reentry:true,route_unmount_keeps_preference:true,blocked_autoplay_recovers_on_gesture:true,manual_pause_respected:true,off_never_unlocks:true,real_audio_played:false}));
+ console.log(JSON.stringify({fresh_document_always_restarts_opening:true,default_autoplay:true,opening_track:leadId,saved_off_survives_reentry:true,saved_on_survives_reentry:true,route_unmount_keeps_preference:true,blocked_autoplay_recovers_on_gesture:true,manual_pause_respected:true,off_never_unlocks:true,real_audio_played:false}));
 })().catch(error=>{console.error(error);process.exitCode=1;});

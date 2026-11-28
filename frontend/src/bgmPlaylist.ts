@@ -11,6 +11,7 @@ export interface BgmTrack {
 }
 
 export const BGM_TRACKS: readonly BgmTrack[] = [
+  { id: "i4H4rSk30IE", title: "AFTER MIDNIGHT · Dark Electronic Music", channel: "SoundFlow Lab", bpm: 100, energy: 0.68, bass: 0.78, bright: 0.52 },
   { id: "uX6jCay0c6I", title: "CEO Mode · Deep Work Music", channel: "Deep Idle Room", bpm: 90, energy: 0.55, bass: 0.62, bright: 0.5 },
   { id: "2moWP_PSooE", title: "DARK CYBERPUNK · Atmospheric Electronic", channel: "Atmospheric Electronic", bpm: 100, energy: 0.66, bass: 0.78, bright: 0.5 },
   { id: "bcmTHIqefMk", title: "DARK SIGNAL · SoundFlow Lab", channel: "SoundFlow Lab", bpm: 100, energy: 0.7, bass: 0.8, bright: 0.55 },

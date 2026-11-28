@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 
-const ids = ['uX6jCay0c6I','2moWP_PSooE','bcmTHIqefMk','zXGb3k-A1Vo','-lbbHQbZNKg','pF2tXC1pXNo','DUWRbl3eVi0','6WQjgHuUDWU','vP4jqXzphvc','uYjUI_zeeJk','TrNDRrDXQdo','8PqN8kexaT0','TMXlHacZSh0','7dn32JVyB6s','DzYp5uqixz0','DHNZeIy4kjs','twTHMnVM9L4'];
+const leadId = 'i4H4rSk30IE';
+const ids = [leadId,'uX6jCay0c6I','2moWP_PSooE','bcmTHIqefMk','zXGb3k-A1Vo','-lbbHQbZNKg','pF2tXC1pXNo','DUWRbl3eVi0','6WQjgHuUDWU','vP4jqXzphvc','uYjUI_zeeJk','TrNDRrDXQdo','8PqN8kexaT0','TMXlHacZSh0','7dn32JVyB6s','DzYp5uqixz0','DHNZeIy4kjs','twTHMnVM9L4'];
 const source = name => ts.transpileModule(readFileSync(new URL(`../src/${name}.ts`, import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText;
@@ -57,7 +58,7 @@ test('the lead track is always first; every other track is shuffled after it', (
   const seconds = new Set();
   for (const r of [0, 0.25, 0.49, 0.5, 0.75, 0.99]) {
     const order = lap(playlist.createBgmSession(undefined, () => r));
-    assert.equal(order[0], 'uX6jCay0c6I');
+    assert.equal(order[0], leadId);
     assert.deepEqual([...order].sort(), [...ids].sort());
     seconds.add(order[1]);
   }
@@ -65,6 +66,15 @@ test('the lead track is always first; every other track is shuffled after it', (
   const storage = memoryStorage();
   const first = lap(playlist.createBgmSession(storage, () => 0.1));
   assert.deepEqual(lap(playlist.createBgmSession(storage, () => { throw new Error('must not reshuffle'); })), first);
+});
+test('a saved session from before the new lead starts with the new lead', () => {
+  const storage = memoryStorage();
+  const prior = ids.slice(1);
+  storage.setItem(playlist.BGM_SESSION_KEY, JSON.stringify({ catalogue: prior.join(','), order: prior, cursor: 4 }));
+  const session = playlist.createBgmSession(storage, () => 0.25);
+  assert.equal(session.position, 1);
+  assert.equal(session.track.id, leadId);
+  assert.deepEqual(lap(session).sort(), [...ids].sort());
 });
 
 const envelope = load('bgmEnvelope');
@@ -120,7 +130,7 @@ test('music credits list every approved source with intact Korean text', () => {
   for(const id of ids) assert.ok(page.includes(`watch?v=${id}`),id);
 });
 
-async function playerRuntime(storage = memoryStorage()) {
+async function playerRuntime(storage = memoryStorage(), enabled = true) {
   const timers = new Map(), events = new Map(), frames = [], calls = [];
   let nextTimer = 0, options, player, actual = -1;
   const session = playlist.createBgmSession(storage, () => .35);
@@ -136,6 +146,7 @@ async function playerRuntime(storage = memoryStorage()) {
   }
   const window = {
     location:{origin:'https://local.test'}, matchMedia:()=>({matches:false}),
+    localStorage:{getItem:() => enabled ? null : 'off', setItem() {}},
     setTimeout: fn => { timers.set(++nextTimer, fn); return nextTimer; }, clearTimeout:id=>timers.delete(id),
     setInterval: fn => { timers.set(++nextTimer, fn); return nextTimer; }, clearInterval:id=>timers.delete(id),
     addEventListener() {},
@@ -154,7 +165,7 @@ async function playerRuntime(storage = memoryStorage()) {
     ready:()=>options.events.onReady({target:player}), error:()=>options.events.onError()};
 }
 test('entrance and desk use one iframe; warm-up is silent and pause/off never redraw the order', async () => {
-  const r = await playerRuntime();
+  const r = await playerRuntime(memoryStorage(), false);
   const initial = r.store.getDeskBgmState().track.id;
   r.store.warmDeskBgm(); r.entrance.useYouTubeBgm().warm(); await r.flush();
   assert.equal(r.frames.length, 1); assert.ok(r.frames[0].src.includes(initial));
@@ -169,10 +180,10 @@ test('entrance and desk use one iframe; warm-up is silent and pause/off never re
   assert.equal(r.store.getDeskBgmState().track.id, initial);
   assert.equal(r.calls.filter(([name])=>name==='load').length, 0);
 });
-test('natural endings follow the saved order across laps, with reversible skips and reload persistence', async () => {
+test('natural endings follow the saved order across laps and a reload starts at the lead', async () => {
   const r = await playerRuntime();
   const order = lap(playlist.createBgmSession(r.storage));
-  r.store.setDeskBgmOn(true); await r.flush(); r.ready(); r.emit(1);
+  r.store.warmDeskBgm(); await r.flush(); r.ready(); r.emit(1);
   for (let i=1;i<=ids.length*2;i++) {
     r.emit(0);
     assert.equal(r.store.getDeskBgmState().track.id, order[i % ids.length]);
@@ -181,14 +192,15 @@ test('natural endings follow the saved order across laps, with reversible skips 
   r.store.next(); r.store.prev(); assert.equal(r.store.getDeskBgmState().track.id, order[0]);
   r.store.next();
   const reloaded = await playerRuntime(r.storage);
-  assert.equal(reloaded.store.getDeskBgmState().track.id, order[1]);
-  assert.equal(reloaded.store.getDeskBgmState().on, false);
+  reloaded.store.warmDeskBgm(); await reloaded.flush();
+  assert.equal(reloaded.store.getDeskBgmState().track.id, leadId);
+  assert.ok(reloaded.frames[0].src.includes(leadId));
   assert.equal(r.frames.length, 1);
 });
 test('unavailable tracks are skipped in order; a full lap of failures stops without looping forever', async () => {
   const r = await playerRuntime();
   const order = lap(playlist.createBgmSession(r.storage));
-  r.store.setDeskBgmOn(true); await r.flush(); r.ready();
+  r.store.warmDeskBgm(); await r.flush(); r.ready();
   for(let i=0;i<ids.length;i++) {
     assert.equal(r.store.getDeskBgmState().track.id, order[i]); r.error();
   }
@@ -199,12 +211,12 @@ test('unavailable tracks are skipped in order; a full lap of failures stops with
 
 test('leaving during API warm-up and stale end events cannot start music or advance the session', async () => {
   const r=await playerRuntime();const initial=r.store.getDeskBgmState().track.id;
-  r.store.setDeskBgmOn(true);r.store.setDeskBgmOn(false);await r.flush();r.ready();r.emit(0);
+  r.store.warmDeskBgm();r.store.setDeskBgmOn(false);await r.flush();r.ready();r.emit(0);
   assert.equal(r.calls.length,0);assert.equal(r.store.getDeskBgmState().track.id,initial);
 });
 test('background return resumes the same track; a deliberate pause remains paused', async () => {
   const r=await playerRuntime();r.store.attachDeskBgm();
-  r.store.setDeskBgmOn(true);await r.flush();r.ready();r.emit(1);
+  r.store.warmDeskBgm();await r.flush();r.ready();r.emit(1);
   const initial=r.store.getDeskBgmState().track.id;
   r.document.visibilityState='hidden';r.events.get('visibilitychange')();r.emit(2);
   r.document.visibilityState='visible';r.events.get('visibilitychange')();
@@ -215,25 +227,22 @@ test('background return resumes the same track; a deliberate pause remains pause
   assert.equal(r.calls.length,count);
 });
 
-test('a drone-started session opens with the drone track twice, then resumes the saved order', async () => {
+test('drone playback uses the same lead and advances into the session shuffle', async () => {
   const r = await playerRuntime();
   const order = lap(playlist.createBgmSession(r.storage));
-  r.store.startDroneBgm(); await r.flush(); r.ready(); r.emit(1);
-  assert.equal(r.store.getDeskBgmState().track.id, playlist.DRONE_OPENING_ID);
+  r.store.warmDeskBgm(); r.store.startDroneBgm(); await r.flush(); r.ready(); r.emit(1);
+  assert.equal(r.store.getDeskBgmState().track.id, leadId);
   r.emit(0);
-  assert.equal(r.store.getDeskBgmState().track.id, playlist.DRONE_OPENING_ID);
-  assert.deepEqual(r.calls.at(-1), ['load', playlist.DRONE_OPENING_ID]);
-  r.emit(1); r.emit(0);
-  const resumed = order[0] === playlist.DRONE_OPENING_ID ? order[1] : order[0];
-  assert.equal(r.store.getDeskBgmState().track.id, resumed);
+  assert.equal(r.store.getDeskBgmState().track.id, order[1]);
+  assert.deepEqual(r.calls.at(-1), ['load', order[1]]);
   r.emit(1);
   r.store.startDroneBgm();
-  assert.equal(r.store.getDeskBgmState().track.id, resumed, 'music already playing is not interrupted');
+  assert.equal(r.store.getDeskBgmState().track.id, order[1], 'music already playing is not interrupted');
 });
-test('skipping during the drone opening returns to the session order', async () => {
+test('skipping the opening from the drone advances to the shuffled second track', async () => {
   const r = await playerRuntime();
   const order = lap(playlist.createBgmSession(r.storage));
-  r.store.startDroneBgm(); await r.flush(); r.ready(); r.emit(1);
+  r.store.warmDeskBgm(); r.store.startDroneBgm(); await r.flush(); r.ready(); r.emit(1);
   r.store.next();
-  assert.equal(r.store.getDeskBgmState().track.id, order[0] === playlist.DRONE_OPENING_ID ? order[1] : order[0]);
+  assert.equal(r.store.getDeskBgmState().track.id, order[1]);
 });
